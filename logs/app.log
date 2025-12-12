@@ -1,0 +1,49 @@
+{"level":"info","ts":"2025-12-11T16:11:32.853+0800","caller":"logger/logger.go:39","msg":"日志初始化成功."}
+{"level":"info","ts":"2025-12-11T16:11:32.874+0800","caller":"db/mysql.go:67","msg":"数据库连接成功."}
+{"level":"info","ts":"2025-12-11T16:11:32.957+0800","caller":"dao/message.go:34","msg":"Message Table Migrate Success"}
+{"level":"info","ts":"2025-12-11T16:11:32.959+0800","caller":"db/redis.go:35","msg":"redis 初始化成功."}
+{"level":"info","ts":"2025-12-11T16:11:32.959+0800","caller":"cmd/main.go:69","msg":"================= 服务启动成功 ================="}
+{"level":"error","ts":"2025-12-11T16:11:49.422+0800","caller":"repository/chatRepo.go:40","msg":"create message error","error":"Error 1062 (23000): Duplicate entry '550e8400-e29b-41d4-a716-446655440000' for key 'message_models.idx_message_models_client_msg_id'"}
+{"level":"error","ts":"2025-12-11T16:11:49.423+0800","caller":"websocket/client.go:135","msg":"Handle Msg Error","cmd":"chat","error":"create Error"}
+{"level":"info","ts":"2025-12-11T16:13:41.563+0800","caller":"logger/logger.go:39","msg":"日志初始化成功."}
+{"level":"info","ts":"2025-12-11T16:13:41.585+0800","caller":"db/mysql.go:67","msg":"数据库连接成功."}
+{"level":"info","ts":"2025-12-11T16:13:41.711+0800","caller":"dao/message.go:34","msg":"Message Table Migrate Success"}
+{"level":"info","ts":"2025-12-11T16:13:41.714+0800","caller":"db/redis.go:35","msg":"redis 初始化成功."}
+{"level":"info","ts":"2025-12-11T16:13:41.714+0800","caller":"cmd/main.go:69","msg":"================= 服务启动成功 ================="}
+{"level":"error","ts":"2025-12-11T16:23:05.520+0800","caller":"middleware/logger.go:50","msg":"/login_email_password","status":403,"method":"POST","path":"/login_email_password","query":"","ip":"::1","user-agent":"Apifox/1.0.0 (https://apifox.com)","trace_id":"7b987d4e-55ab-40db-9037-77fdcde6d58d","cost":0.0055361,"err":""}
+{"level":"warn","ts":"2025-12-11T16:23:41.669+0800","caller":"middleware/jwt.go:29","msg":"Invalid authorization format, should be 'Bearer <token>'","trace_id":"b452b680-13bf-459e-8c6d-889e1bb458fb","ip":"::1","path":"/chat/getAllClient"}
+{"level":"error","ts":"2025-12-11T16:23:41.669+0800","caller":"middleware/logger.go:50","msg":"/chat/getAllClient","status":401,"method":"GET","path":"/chat/getAllClient","query":"","ip":"::1","user-agent":"Apifox/1.0.0 (https://apifox.com)","trace_id":"b452b680-13bf-459e-8c6d-889e1bb458fb","cost":0,"err":""}
+{"level":"info","ts":"2025-12-11T16:24:40.851+0800","caller":"logger/logger.go:39","msg":"日志初始化成功."}
+{"level":"info","ts":"2025-12-11T16:24:40.872+0800","caller":"db/mysql.go:67","msg":"数据库连接成功."}
+{"level":"info","ts":"2025-12-11T16:24:40.914+0800","caller":"dao/message.go:34","msg":"Message Table Migrate Success"}
+{"level":"info","ts":"2025-12-11T16:24:40.916+0800","caller":"db/redis.go:35","msg":"redis 初始化成功."}
+{"level":"info","ts":"2025-12-11T16:24:40.916+0800","caller":"cmd/main.go:69","msg":"================= 服务启动成功 ================="}
+{"level":"info","ts":"2025-12-11T16:26:24.393+0800","caller":"logger/logger.go:39","msg":"日志初始化成功."}
+{"level":"info","ts":"2025-12-11T16:26:24.416+0800","caller":"db/mysql.go:67","msg":"数据库连接成功."}
+{"level":"info","ts":"2025-12-11T16:26:24.479+0800","caller":"dao/message.go:34","msg":"Message Table Migrate Success"}
+{"level":"info","ts":"2025-12-11T16:26:24.483+0800","caller":"db/redis.go:35","msg":"redis 初始化成功."}
+{"level":"info","ts":"2025-12-11T16:26:24.484+0800","caller":"cmd/main.go:69","msg":"================= 服务启动成功 ================="}
+{"level":"error","ts":"2025-12-11T16:27:06.037+0800","caller":"websocket/client.go:96","msg":"WebSocket 读取异常","error":"websocket: close 1005 (no status)"}
+{"level":"info","ts":"2025-12-11T16:29:05.796+0800","caller":"logger/logger.go:39","msg":"日志初始化成功."}
+{"level":"info","ts":"2025-12-11T16:29:05.817+0800","caller":"db/mysql.go:67","msg":"数据库连接成功."}
+{"level":"info","ts":"2025-12-11T16:29:05.864+0800","caller":"dao/message.go:34","msg":"Message Table Migrate Success"}
+{"level":"info","ts":"2025-12-11T16:29:05.868+0800","caller":"db/redis.go:35","msg":"redis 初始化成功."}
+{"level":"info","ts":"2025-12-11T16:29:05.868+0800","caller":"cmd/main.go:69","msg":"================= 服务启动成功 ================="}
+{"level":"error","ts":"2025-12-11T16:29:21.407+0800","caller":"service/chatService.go:78","msg":"消息推送失败","sender_id":1,"client_msg_id":"550e8400-e29b-41d4-a716-446655440000","error":"用户已下线"}
+{"level":"error","ts":"2025-12-11T16:30:04.555+0800","caller":"websocket/client.go:96","msg":"WebSocket 读取异常","error":"websocket: close 1005 (no status)"}
+{"level":"info","ts":"2025-12-11T16:30:47.360+0800","caller":"logger/logger.go:39","msg":"日志初始化成功."}
+{"level":"info","ts":"2025-12-11T16:30:47.385+0800","caller":"db/mysql.go:67","msg":"数据库连接成功."}
+{"level":"info","ts":"2025-12-11T16:30:47.438+0800","caller":"dao/message.go:34","msg":"Message Table Migrate Success"}
+{"level":"info","ts":"2025-12-11T16:30:47.442+0800","caller":"db/redis.go:35","msg":"redis 初始化成功."}
+{"level":"info","ts":"2025-12-11T16:30:47.442+0800","caller":"cmd/main.go:69","msg":"================= 服务启动成功 ================="}
+{"level":"error","ts":"2025-12-11T16:31:15.198+0800","caller":"websocket/client.go:96","msg":"WebSocket 读取异常","error":"websocket: close 1005 (no status)"}
+{"level":"error","ts":"2025-12-11T16:32:16.710+0800","caller":"service/chatService.go:78","msg":"消息推送失败","sender_id":1,"client_msg_id":"550e8400-e29b-41d4-a716-446655440000","error":"用户已下线"}
+{"level":"error","ts":"2025-12-11T16:33:39.282+0800","caller":"service/chatService.go:78","msg":"消息推送失败","sender_id":1,"client_msg_id":"550e8400-e29b-41d4-a716-446655440000","error":"用户已下线"}
+{"level":"info","ts":"2025-12-11T16:37:04.770+0800","caller":"logger/logger.go:39","msg":"日志初始化成功."}
+{"level":"info","ts":"2025-12-11T16:37:04.792+0800","caller":"db/mysql.go:67","msg":"数据库连接成功."}
+{"level":"info","ts":"2025-12-11T16:37:04.838+0800","caller":"dao/message.go:34","msg":"Message Table Migrate Success"}
+{"level":"info","ts":"2025-12-11T16:37:04.842+0800","caller":"db/redis.go:35","msg":"redis 初始化成功."}
+{"level":"info","ts":"2025-12-11T16:37:04.842+0800","caller":"cmd/main.go:69","msg":"================= 服务启动成功 ================="}
+{"level":"error","ts":"2025-12-11T16:40:07.120+0800","caller":"websocket/client.go:96","msg":"WebSocket 读取异常","error":"websocket: close 1005 (no status)"}
+{"level":"error","ts":"2025-12-11T16:40:26.546+0800","caller":"service/chatService.go:79","msg":"消息推送失败","sender_id":1,"client_msg_id":"550e8400-e29b-41d4-a716-446655440000","error":"用户已下线"}
+{"level":"error","ts":"2025-12-12T09:50:58.745+0800","caller":"service/chatService.go:79","msg":"消息推送失败","sender_id":1,"client_msg_id":"550e8400-e29b-41d4-a716-446655440000","error":"用户已下线"}

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <title>验证码</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            padding: 20px;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #ff6600;
+            font-size: 24px;
+            text-align: center;
+            margin-top: 0;
+            margin-bottom: 20px;
+        }
+
+        .code-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 30px;
+        }
+
+        .code {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: center;
+            margin-right: 10px;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #333333;
+        }
+        .contact {
+            text-align: center;
+            font-size: 14px;
+            color: #999999;
+        }
+
+        .contact a {
+            color: #999999;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>{{.title}}</h1>
+
+    <div class="code-container">
+        <div class="code"><div style="border: solid 1px #ff6600; width: 40px; height: 40px; text-align: center; line-height: 40px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.3); border-radius: 5px; font-size: 24px; font-weight: bold;">{{slice .code 0 1}}</div></div>
+        <div class="code"><div style="border: solid 1px #ff6600; width: 40px; height: 40px; text-align: center; line-height: 40px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.3); border-radius: 5px; font-size: 24px; font-weight: bold;">{{slice .code 1 2}}</div></div>
+        <div class="code"><div style="border: solid 1px #ff6600; width: 40px; height: 40px; text-align: center; line-height: 40px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.3); border-radius: 5px; font-size: 24px; font-weight: bold;">{{slice .code 2 3}}</div></div>
+        <div class="code"><div style="border: solid 1px #ff6600; width: 40px; height: 40px; text-align: center; line-height: 40px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.3); border-radius: 5px; font-size: 24px; font-weight: bold;">{{slice .code 3 4}}</div></div>
+        <div class="code"><div style="border: solid 1px #ff6600; width: 40px; height: 40px; text-align: center; line-height: 40px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.3); border-radius: 5px; font-size: 24px; font-weight: bold;">{{slice .code 4 5}}</div></div>
+        <div class="code"><div style="border: solid 1px #ff6600; width: 40px; height: 40px; text-align: center; line-height: 40px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.3); border-radius: 5px; font-size: 24px; font-weight: bold;">{{slice .code 5 6}}</div></div>
+    </div>
+
+    <div class="contact">
+        <p>如果您有任何问题，请联系客服：</p>
+        <p>xxx-xxx-xxxx</p>
+    </div>
+</div>
+</body>
+</html>
