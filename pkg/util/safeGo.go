@@ -3,7 +3,14 @@ package util
 import (
 	"fmt"
 	"go.uber.org/zap"
+	"reflect"
+	"runtime"
 	"time"
+)
+
+const (
+	RetryMaxTimes = 2
+	RetryInterval = 100 * time.Millisecond
 )
 
 // SafeGo 封装 goroutine 用于保证子协程的报错安全退出
@@ -30,5 +37,15 @@ func Retry(maxTimes int, interval time.Duration, fn func() error) error {
 		}
 		time.Sleep(interval)
 	}
-	return fmt.Errorf("重试%d次后失败：%w", maxTimes, err)
+	// 2. 获取函数的PC值
+	pc := reflect.ValueOf(fn).Pointer()
+	// 3. 通过PC值获取函数信息
+	funcInfo := runtime.FuncForPC(pc)
+	var fullName string
+	if funcInfo == nil {
+		fullName = "未知函数"
+	} else {
+		fullName = funcInfo.Name() // 完整名称：包名.函数名（如main.add）
+	}
+	return fmt.Errorf("方法: %s重试%d次后失败：%w", fullName, maxTimes, err)
 }

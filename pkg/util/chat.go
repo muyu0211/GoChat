@@ -4,7 +4,10 @@ import "time"
 
 const (
 	// PubSubChannel Redis发布订阅频道（统一配置，避免硬编码）
-	PubSubChannel = "im:push:cross_server"
+	PubSubChannel  = "im:push:cross_server"
+	RedisDupKey    = "im:dup_key"
+	RedisDupExpire = 5 * time.Minute
+	RedisSeqKey    = "im:seq"
 	// RedisPublishTimeout Redis发布操作超时时间（避免阻塞）
 	RedisPublishTimeout = 3 * time.Second
 	// RedisPublishRetryTimes 发布失败重试次数（幂等场景下适用）

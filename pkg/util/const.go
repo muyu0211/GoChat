@@ -16,7 +16,7 @@ const (
 
 	CodeExpireTime         = 60 * time.Second
 	CodeUserLocationExpire = 7 * 24 * time.Hour
-	CodeMaxSendNum         = 3 // 验证码重发次数
+	CodeMaxSendNum         = 2 // 验证码重发次数
 
 	CHARSET              = "abcdefghijklmnopqrstuWXyZABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	UsernameSuffixLength = 12

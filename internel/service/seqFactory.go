@@ -2,8 +2,10 @@ package service
 
 import (
 	"GoChat/internel/repository/cache"
+	"GoChat/pkg/util"
 	"context"
 	"fmt"
+	"github.com/go-redis/redis/v8"
 	"time"
 )
 
@@ -41,4 +43,31 @@ func (sf *SeqFactory) CheckAndSetDedup(ctx context.Context, conversationID strin
 	}
 	// success 为 true 表示设置成功，说明不是重复消息; 为 false 表示 Key 已存在，说明是重复消息
 	return !suc, nil
+}
+
+// CheckAndSetDedupWithSeq 事务化：检查消息幂等性和取号（SeqID）
+func (sf *SeqFactory) CheckAndSetDedupWithSeq(ctx context.Context, conversationID string, clientMsgID string, expire time.Duration) (bool, uint64, error) {
+	dupKey := fmt.Sprintf("%s:%s:%s", util.RedisDupKey, conversationID, clientMsgID)
+	seqKey := fmt.Sprintf("%s:%s", util.RedisSeqKey, conversationID)
+
+	// Redis事务：MULTI/EXEC
+	pipe := sf.ChatCache.TxPipeline()
+
+	pipe.Exists(ctx, dupKey)
+	pipe.Incr(ctx, seqKey)
+	pipe.SetEX(ctx, dupKey, 1, expire)
+
+	// 执行事务
+	cmder, err := pipe.Exec(ctx)
+	if err != nil {
+		return false, 0, fmt.Errorf("redis exec failed: %w", err)
+	}
+
+	// 4. 解析结果(事务会返回每个命令的执行结果)
+	if exist := cmder[0].(*redis.IntCmd).Val(); exist == 1 {
+		return false, 0, nil
+	}
+	seqID := cmder[1].(*redis.IntCmd).Val()
+
+	return false, uint64(seqID), nil
 }

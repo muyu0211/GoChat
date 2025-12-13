@@ -25,6 +25,19 @@ func NewChatService(sq *SeqFactory, ps *PushService, cr repository.IChatRepo) IC
 	}
 }
 
+func (c *chatService) pushMsg(ctx context.Context, reply *ws.ReplyMsg) {
+	pushCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	if err := c.pushService.Push(pushCtx, reply); err != nil {
+		zap.L().Error("消息推送失败",
+			zap.Uint64("sender_id", reply.SenderID),
+			zap.String("client_msg_id", reply.ClientMsgID),
+			zap.Error(err))
+		// TODO: 添加死信队列
+	}
+}
+
 // HandleChatMsg 处理上行聊天消息(用户发送过来的消息): 整个“上行”流程：去重 -> 取号 -> 落库 -> (给客户端)返回 ACK 数据。
 func (c *chatService) HandleChatMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
 	// TODO：进行消息参数校验
@@ -33,19 +46,27 @@ func (c *chatService) HandleChatMsg(ctx context.Context, client *ws.Client, req 
 	conversationID := util.GetConversationID(senderID, req.ReceiverID)
 
 	// 2. 幂等性检查 TODO: 将幂等性检查和取号封装至一起（事务绑定）
-	isDup, err := c.seqFactory.CheckAndSetDedup(ctx, conversationID, req.ClientMsgID)
+	//isDup, err := c.seqFactory.CheckAndSetDedup(ctx, conversationID, req.ClientMsgID)
+	//if err != nil {
+	//	return err
+	//}
+	//if isDup {
+	//	log.Println("消息重复")
+	//	return nil
+	//}
+	//
+	//// 3.取号：生成SeqID
+	//seqID, err := c.seqFactory.GetNextSeqID(ctx, conversationID)
+	//if err != nil {
+	//	return err
+	//}
+	isDup, seqID, err := c.seqFactory.CheckAndSetDedupWithSeq(ctx, conversationID, req.ClientMsgID, time.Hour)
 	if err != nil {
-		return err
+		zap.L().Error("消息去重失/取号失败", zap.Error(err))
 	}
 	if isDup {
 		log.Println("消息重复")
 		return nil
-	}
-
-	// 3.取号：生成SeqID
-	seqID, err := c.seqFactory.GetNextSeqID(ctx, conversationID)
-	if err != nil {
-		return err
 	}
 
 	// 4. 消息落库
@@ -60,7 +81,9 @@ func (c *chatService) HandleChatMsg(ctx context.Context, client *ws.Client, req 
 		MsgStatus:      util.MsgStatusRead,
 		CreatedAt:      createdAt,
 	}
-	if err = c.chatRepo.Create(ctx, &msg); err != nil {
+	if err = util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
+		return c.chatRepo.Create(ctx, &msg)
+	}); err != nil {
 		return err
 	}
 
@@ -75,37 +98,20 @@ func (c *chatService) HandleChatMsg(ctx context.Context, client *ws.Client, req 
 			Content:     req.Content,
 			TimeStamp:   createdAt.UnixMilli(),
 		}
-		if err = c.pushService.Push(context.Background(), reply); err != nil {
-			zap.L().Error("消息推送失败",
-				zap.Uint64("sender_id", senderID),
-				zap.String("client_msg_id", req.ClientMsgID),
-				zap.Error(err))
-		}
-		// TODO: 消息推送成功后 由客户端发送ack报文，服务端确认后修改数据库消息状态
-		log.Printf("消息推送成功:seqID: %d, content: %s", reply.SeqID, reply.Content)
+		c.pushMsg(ctx, reply)
 	})
 
 	// 5. 异步回复ACK（发送方）（主流程不阻塞，失败后重试）
-	var pushErr error
 	util.SafeGo(func() {
 		ack := &ws.ReplyMsg{
-			ReceiverID:  req.SenderID,
 			Cmd:         ws.CmdAck,
+			ReceiverID:  req.SenderID,
 			ClientMsgID: req.ClientMsgID,
 			SeqID:       seqID,
 			TimeStamp:   createdAt.UnixMilli(),
 		}
-		if err = c.pushService.Push(ctx, ack); err != nil {
-			zap.L().Error("ACK消息发送失败",
-				zap.Uint64("sender_id", senderID),
-				zap.String("client_msg_id", req.ClientMsgID),
-				zap.Error(err))
-			pushErr = err
-		}
+		c.pushMsg(ctx, ack)
 	})
-	if pushErr != nil {
-		return pushErr
-	}
 
 	return nil
 }
