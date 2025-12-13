@@ -1,0 +1,49 @@
+# ===================== 通用忽略规则（所有项目）=====================
+# macOS系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows系统文件
+$RECYCLE.BIN
+*.tmp
+*.temp
+
+# 编辑器/IDE配置文件（覆盖主流编辑器）
+# VS Code
+.vscode/
+*.code-workspace
+.history/
+
+# IntelliJ IDEA/Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+classes/
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+tmp/
+
+# Vim
+*.swp
+*.swo
+*~
+.vim/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Git本身的临时文件
+.gitattributes
+.gitignore.local  # 本地个性化忽略文件（不提交到仓库）
