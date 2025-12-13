@@ -26,6 +26,10 @@ func NewRedisCache(rdb *redis.Client) ICacheRepository {
 	return &redisCache{rdb: rdb}
 }
 
+func (rc *redisCache) TxPipeline() redis.Pipeliner {
+	return rc.rdb.TxPipeline()
+}
+
 // Set 通用方法
 func (rc *redisCache) Set(ctx context.Context, key string, dest interface{}, expiration time.Duration) error {
 	data, err := json.Marshal(dest)

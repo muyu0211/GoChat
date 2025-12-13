@@ -7,6 +7,7 @@ import (
 )
 
 type ICacheRepository interface {
+	TxPipeline() redis.Pipeliner
 	Get(context.Context, string, interface{}) (bool, error)
 	Set(context.Context, string, interface{}, time.Duration) error
 	Delete(context.Context, ...string) error
