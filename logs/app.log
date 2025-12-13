@@ -62,3 +62,8 @@
 {"level":"info","ts":"2025-12-12T21:27:12.060+0800","caller":"db/redis.go:35","msg":"redis 初始化成功."}
 {"level":"info","ts":"2025-12-12T21:27:12.060+0800","caller":"cmd/main.go:69","msg":"================= 服务启动成功 ================="}
 {"level":"error","ts":"2025-12-12T21:27:19.277+0800","caller":"service/chatService.go:33","msg":"消息推送失败","sender_id":1,"client_msg_id":"550e8400-e29b-41d4-a716-446655440000","error":"用户已下线"}
+{"level":"info","ts":"2025-12-14T00:14:53.942+0800","caller":"logger/logger.go:39","msg":"日志初始化成功."}
+{"level":"info","ts":"2025-12-14T00:14:53.966+0800","caller":"db/mysql.go:67","msg":"数据库连接成功."}
+{"level":"info","ts":"2025-12-14T00:14:54.011+0800","caller":"dao/message.go:34","msg":"Message Table Migrate Success"}
+{"level":"info","ts":"2025-12-14T00:14:54.014+0800","caller":"db/redis.go:35","msg":"redis 初始化成功."}
+{"level":"info","ts":"2025-12-14T00:14:54.014+0800","caller":"cmd/main.go:69","msg":"================= 服务启动成功 ================="}
