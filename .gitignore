@@ -19,6 +19,11 @@ $RECYCLE.BIN
 *.code-workspace
 .history/
 
+# 原有规则
+logs/
+# 补充：忽略logs下的.gitkeep文件
+logs/.gitkeep
+
 # IntelliJ IDEA/Android Studio
 .idea/
 *.iml
