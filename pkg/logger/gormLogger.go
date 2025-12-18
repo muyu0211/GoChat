@@ -11,18 +11,10 @@ import (
 	"time"
 )
 
-type zapLoggerAdapter struct {
+type zapGormAdapter struct {
 	logger        *zap.Logger
 	SlowThreshold time.Duration
 }
-
-// NewGormLogger 创建GORM日志
-//func NewGormLogger(zapLogger *zap.Logger, slowThreshold time.Duration) logger.Interface {
-//	return &zapLoggerAdapter{
-//		logger:        zapLogger,
-//		SlowThreshold: slowThreshold,
-//	}
-//}
 
 // NewGormLogger 创建一个专门用于Gorm的Zap Logger，输出到指定文件
 func NewGormLogger(slowThreshold time.Duration) logger.Interface {
@@ -41,7 +33,6 @@ func NewGormLogger(slowThreshold time.Duration) logger.Interface {
 	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder // INFO, WARN
 
 	// 如果你希望 SQL 日志是纯文本方便看，可以用 ConsoleEncoder
-	// encoder := zapcore.NewConsoleEncoder(encoderConfig)
 	encoder := zapcore.NewJSONEncoder(encoderConfig)
 
 	// 3. 创建 Core
@@ -51,30 +42,29 @@ func NewGormLogger(slowThreshold time.Duration) logger.Interface {
 	// 4. 创建 Logger 核心
 	l := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(3))
 
-	return &zapLoggerAdapter{
+	return &zapGormAdapter{
 		logger:        l,
 		SlowThreshold: slowThreshold,
 	}
-
 }
 
-func (l *zapLoggerAdapter) LogMode(level logger.LogLevel) logger.Interface {
+func (l *zapGormAdapter) LogMode(level logger.LogLevel) logger.Interface {
 	return l
 }
 
-func (l *zapLoggerAdapter) Info(ctx context.Context, msg string, data ...interface{}) {
+func (l *zapGormAdapter) Info(ctx context.Context, msg string, data ...interface{}) {
 	l.logger.Info(msg, zap.Any("data", data))
 }
 
-func (l *zapLoggerAdapter) Warn(ctx context.Context, msg string, data ...interface{}) {
+func (l *zapGormAdapter) Warn(ctx context.Context, msg string, data ...interface{}) {
 	l.logger.Warn(msg, zap.Any("data", data))
 }
 
-func (l *zapLoggerAdapter) Error(ctx context.Context, msg string, data ...interface{}) {
+func (l *zapGormAdapter) Error(ctx context.Context, msg string, data ...interface{}) {
 	l.logger.Error(msg, zap.Any("data", data))
 }
 
-func (l *zapLoggerAdapter) Trace(ctx context.Context, begin time.Time, fc func() (sql string, rowsAffected int64), err error) {
+func (l *zapGormAdapter) Trace(ctx context.Context, begin time.Time, fc func() (sql string, rowsAffected int64), err error) {
 	elapsed := time.Since(begin)
 	sql, rows := fc()
 

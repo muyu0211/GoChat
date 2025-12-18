@@ -1,14 +1,13 @@
 package db
 
 import (
+	"GoChat/config"
 	"GoChat/internel/model/dao"
 	"GoChat/pkg/logger"
 	"fmt"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"reflect"
 	"time"
 )
 
@@ -40,20 +39,15 @@ func GetDBS() *DBS {
 	return dbs
 }
 
-func StartMySQL() {
+func StartMySQL(cfg *config.Config) {
 	var err error
-	mySQLConfig := &MySQLConfig{}
-	if err = viper.UnmarshalKey("mySql", mySQLConfig); err != nil {
-		zap.L().Fatal(fmt.Sprintf("解析MYSQL配置失败 %s, %v", reflect.TypeOf(mySQLConfig).Name(), err))
-	}
-
-	if dbs, err = initMySQL(mySQLConfig); err != nil {
+	if dbs, err = initMySQL(&cfg.MySQLConfig); err != nil {
 		panic(fmt.Errorf("mysql initialization failed, err: %v", err))
 	}
 	fmt.Println("===========mysql initialization successful!===========")
 }
 
-func initMySQL(sqlCfg *MySQLConfig) (*DBS, error) {
+func initMySQL(sqlCfg *config.MySQLConfig) (*DBS, error) {
 	var (
 		MasterDB *gorm.DB
 		SlaveDBs = make([]*gorm.DB, 0)
@@ -69,7 +63,8 @@ func initMySQL(sqlCfg *MySQLConfig) (*DBS, error) {
 	// 进行表迁移
 	//dao.MigrateUserBasic(MasterDB)
 	//dao.MigrateBoard(MasterDB)
-	dao.MigrateMessage(MasterDB)
+	//dao.MigrateMessage(MasterDB)
+	dao.MigrateConversation(MasterDB)
 
 	return &DBS{
 		Master: MasterDB,
@@ -78,7 +73,7 @@ func initMySQL(sqlCfg *MySQLConfig) (*DBS, error) {
 }
 
 // connDB 创建数据库连接
-func connDB(sqlCfg *DBConfig, commCfg *MySQLConfig) (*gorm.DB, error) {
+func connDB(sqlCfg *config.DBConfig, commCfg *config.MySQLConfig) (*gorm.DB, error) {
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		sqlCfg.User,
 		sqlCfg.Password,
@@ -91,7 +86,7 @@ func connDB(sqlCfg *DBConfig, commCfg *MySQLConfig) (*gorm.DB, error) {
 		Logger: gormLogger,
 	})
 
-	if err != nil || db == nil {
+	if err != nil {
 		zap.L().Fatal("连接数据库失败", zap.String("error", err.Error()))
 	}
 

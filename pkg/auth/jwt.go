@@ -5,20 +5,13 @@ package auth
  */
 
 import (
+	"GoChat/config"
 	"errors"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"strings"
 	"time"
 )
-
-type JWTConfig struct {
-	JwtSecret   string `mapstructure:"secret"`       // jwt密钥
-	ExpireHours int    `mapstructure:"expire_hours"` // token过期时间
-	Issuer      string `mapstructure:"issuer"`       // 签发人
-	SignMethod  string `mapstructure:"sign_method"`  // 签名方法
-}
 
 type CustomClaims struct {
 	UserID uint64 `json:"user_id"`
@@ -28,8 +21,6 @@ type CustomClaims struct {
 	jwt.RegisteredClaims
 }
 
-var jwtConfig JWTConfig
-
 // 定义常见错误，方便上层判断
 var (
 	ErrTokenExpired     = errors.New("token is expired")
@@ -38,12 +29,10 @@ var (
 	ErrTokenInvalid     = errors.New("couldn't handle this token")
 )
 
-func StartJWT() {
-	if err := viper.UnmarshalKey("jwt", &jwtConfig); err != nil {
-		zap.L().Fatal("unmarshal jwt config failed", zap.String("err", err.Error()))
-		return
-	}
+var jwtConfig *config.JWTConfig
 
+func StartJWT(cfg *config.Config) {
+	jwtConfig = &cfg.JWTConfig
 	if err := initJWT(); err != nil {
 		zap.L().Fatal("jwt initialization failed", zap.String("err", err.Error()))
 		return

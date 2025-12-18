@@ -25,3 +25,14 @@ type LoginResponse struct {
 	Email     string `json:"email"`
 	Telephone string `json:"phone" binding:"omitempty"`
 }
+
+type UserSession struct {
+	UserID uint64 `json:"user_id"`
+	Convs  []Conversations
+}
+
+type Conversations struct {
+	ConversationID string `json:"conversation_id"`
+	LastSeq        uint64 `json:"last_seq"`
+	UnreadCount    uint64 `json:"unread_count"`
+}

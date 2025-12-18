@@ -31,6 +31,7 @@ func (r *WsRouter) Register(cmd string, handler HandlerFunc) {
 	r.handlers[cmd] = handler
 }
 
+// Dispatch 分发路由
 func (r *WsRouter) Dispatch(ctx context.Context, client *Client, req *SendMsg) error {
 	r.RLock()
 	handler, ok := r.handlers[req.Cmd] // 获取对应操作的处理函数

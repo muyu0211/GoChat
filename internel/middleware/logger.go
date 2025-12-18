@@ -33,10 +33,9 @@ func GinLogger() gin.HandlerFunc {
 		}
 		c.Set(TraceIDKey, traceID)
 		c.Header(TraceIDKey, traceID)
-
 		c.Next()
 
-		// TODO: 上线场景中，只针对500以上的请求状态进行日志记录
+		// 上线场景中，只针对500以上的请求状态进行日志记录
 		statusCode := c.Writer.Status()
 		var errMsg string
 		if err, ok := c.Get("err"); ok && err != nil {

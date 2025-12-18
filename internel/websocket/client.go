@@ -1,8 +1,8 @@
 package websocket
 
 import (
+	"GoChat/pkg/util"
 	"context"
-	"encoding/json"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 	"log"
@@ -101,35 +101,27 @@ func (c *Client) ReadPump() {
 		}
 
 		var req SendMsg
-		var reply *ReplyMsg
-
-		if err = json.Unmarshal(msg, &req); err != nil {
+		// 反序列化消息
+		if err = util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
+			return req.Deserialize(msg)
+		}); err != nil {
 			zap.L().Error("序列化消息失败", zap.Error(err))
-			reply = &ReplyMsg{
-				ReceiverID: req.SenderID, // 服务器给发送方发送确认/拒绝消息，接收者ID为发送方本身
-				Cmd:        CmdError,
-				Content:    "序列化消息失败",
-				SenderID:   c.UserID,
-				TimeStamp:  req.TimeStamp,
-			}
-			replyByte, _ := json.Marshal(reply)
-			c.DataBuffer <- replyByte
 			continue
 		}
-
-		//if req.Cmd == CmdChat {
-		//	// 如果是userA发送给userB的聊天消息，则丢给 service 层处理
-		//	err = handleReadMsg(context.Background(), c.UserID, &req)
-		//} else if req.Cmd == CmdAck {
-		//	// TODO: 如果是user发送过来的确认消息，则标记成已读，并修改数据库
-		//} else if req.Cmd == CmdDelete {
-		//	// TODO 删除消息
-		//} else if req.Cmd == CmdRevoke {
-		//	// TODO 撤回消息
-		//} else {
-		//	zap.L().Error("未知消息类型", zap.String("cmd", req.Cmd))
+		//if err = req.Deserialize(msg); err != nil {
+		//	reply = &ReplyMsg{
+		//		ReceiverID: req.SenderID, // 服务器给发送方发送确认/拒绝消息，接收者ID为发送方本身
+		//		Cmd:        CmdError,
+		//		Content:    "序列化消息失败",
+		//		SenderID:   c.UserID,
+		//		TimeStamp:  req.TimeStamp,
+		//	}
+		//	replyByte, _ := reply.Serialize()
+		//	c.DataBuffer <- replyByte
+		//	continue
 		//}
 
+		// 处理消息
 		err = c.wsRouter.Dispatch(context.Background(), c, &req)
 		if err != nil {
 			zap.L().Error("Handle Msg Error",

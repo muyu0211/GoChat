@@ -14,7 +14,7 @@ import (
  * @Description: 处理用户请求的ws连接
  */
 
-type WsHandler struct {
+type ChatHandler struct {
 	chatService service.IChatService
 	userService service.IUserService
 	syncService *service.SyncService
@@ -26,8 +26,8 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true }, // 允许跨域
 }
 
-func NewWsHandler(cs service.IChatService, us service.IUserService, ss *service.SyncService) *WsHandler {
-	return &WsHandler{
+func NewChatHandler(cs service.IChatService, us service.IUserService, ss *service.SyncService) *ChatHandler {
+	return &ChatHandler{
 		chatService: cs,
 		userService: us,
 		syncService: ss,
@@ -35,7 +35,7 @@ func NewWsHandler(cs service.IChatService, us service.IUserService, ss *service.
 }
 
 // Connect 登录之后，客户端紧接着发送ws连接请求
-func (wh *WsHandler) Connect(c *gin.Context) {
+func (ch *ChatHandler) Connect(c *gin.Context) {
 	// 1. 判断用户登陆情况
 	var userID uint64
 	var ok bool
@@ -58,16 +58,16 @@ func (wh *WsHandler) Connect(c *gin.Context) {
 
 	// 获取client实例对象
 	wsRouter := ws.NewWsRouter()
-	wsRouter.Register(ws.CmdChat, wh.chatService.HandleChatMsg)
-	wsRouter.Register(ws.CmdAck, wh.chatService.HandleAckMsg)
-	wsRouter.Register(ws.CmdRevoke, wh.chatService.HandleRevokeMsg)
+	wsRouter.Register(ws.CmdChat, ch.chatService.HandleChatMsg)
+	wsRouter.Register(ws.CmdAck, ch.chatService.HandleAckMsg)
+	wsRouter.Register(ws.CmdRevoke, ch.chatService.HandleRevokeMsg)
 
 	client := ws.NewClient(conn, userID, wsRouter, func(userID uint64) {
-		_ = wh.userService.UserOffline(c, userID)
+		_ = ch.userService.UserOffline(c, userID)
 	})
 
 	// 执行用户上线操作
-	err = wh.userService.UserOnline(c, userID)
+	err = ch.userService.UserOnline(c, userID)
 	if err == nil {
 		log.Printf("用户：%d 上线", userID)
 	}
@@ -86,11 +86,22 @@ func (wh *WsHandler) Connect(c *gin.Context) {
 	})
 	util.SafeGo(func() {
 		// 用户上线后进行消息同步
-		wh.syncService.Sync(c, userID)
+		ch.syncService.Sync(c, userID)
 	})
 }
 
-func (wh *WsHandler) GetAllClient(c *gin.Context) {
+func (ch *ChatHandler) GetAllClient(c *gin.Context) {
 	userIDs := ws.Manager.GetAllClient()
 	c.JSON(http.StatusOK, util.NewResMsg("1", "成功", userIDs))
+}
+
+func (ch *ChatHandler) SyncSession(c *gin.Context) {
+	// 从token中获取用户ID
+	userID, _ := c.Get(util.CtxUserIDKey)
+	sessions, err := ch.syncService.GetSessions(c.Request.Context(), userID.(uint64))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": sessions})
 }

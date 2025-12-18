@@ -8,11 +8,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
 	"log"
+	"strconv"
 	"time"
 )
+
+type IPushService interface {
+	Push(context.Context, *ws.ReplyMsg) error
+	Publish(context.Context, uint64, string, []byte) error
+	Subscribe(context.Context, string)
+}
 
 type PushPayLoad struct {
 	Msg          []byte `json:"msg_data"`
@@ -38,7 +46,10 @@ func (ps *PushService) Push(ctx context.Context, msg *ws.ReplyMsg) error {
 	// 1. 查询接收方在哪一台服务器
 	serveID, err := ps.userService.GetUserLocation(ctx, receiverID)
 	if errors.Is(err, redis.Nil) {
-		// TODO: 对方不在线, 存入rocketMQ，当用户上线时，由用户主动拉取信息
+		// 对方不在线, 存入redis
+		if err = ps.saveOffline(ctx, msg); err != nil {
+			return ErrServerNotAvailable
+		}
 		log.Printf("用户: %d 不在线", receiverID)
 		return ErrUserOffline
 	}
@@ -46,14 +57,14 @@ func (ps *PushService) Push(ctx context.Context, msg *ws.ReplyMsg) error {
 		return err
 	}
 
-	msgBytes, err := json.Marshal(msg)
+	msgBytes, err := msg.Serialize()
 	if err != nil {
-		zap.L().Error("ACK消息序列化失败", zap.Error(err))
+		zap.L().Error("消息序列化失败", zap.Error(err))
 		return ErrMarshalJSON
 	}
-	if serveID == util.ServerID {
+	if serveID == util.ServerID { // 本机推送
 		return ps.pushLocal(ctx, receiverID, msgBytes)
-	} else {
+	} else { // 跨服务器推送
 		return ps.Publish(ctx, receiverID, serveID, msgBytes)
 	}
 }
@@ -71,6 +82,25 @@ func (ps *PushService) pushLocal(ctx context.Context, userID uint64, msg []byte)
 		case <-time.After(100 * time.Millisecond):
 			return bufio.ErrBufferFull
 		}
+	}
+	return nil
+}
+
+// saveOffline 保存离线消息
+func (ps *PushService) saveOffline(ctx context.Context, msg *ws.ReplyMsg) error {
+	zAddCtx, cancel := context.WithTimeout(ctx, util.RedisZAddTimeout)
+	defer cancel()
+
+	// key设计： fmt.Sprintf("im:box:%s:%s", receiverID, msg.ConversationID)
+	key := fmt.Sprintf("%s:%s:%s", util.RedisBoxKey, strconv.FormatUint(msg.ReceiverID, 10), msg.ConversationID)
+	msgByte, err := msg.Serialize()
+	if err != nil {
+		zap.L().Error("序列化消息失败", zap.Error(err))
+		return ErrMarshalJSON
+	}
+	if err = ps.redisCache.ZAdd(zAddCtx, key, float64(msg.SeqID), msgByte, util.RedisOfflineExpire); err != nil {
+		zap.L().Error("保存离线消息出错：", zap.Error(err))
+		return ErrServerNotAvailable
 	}
 	return nil
 }
@@ -128,7 +158,6 @@ func (ps *PushService) Subscribe(ctx context.Context, channel string) {
 			if err := json.Unmarshal([]byte(msg.Payload), &payLoad); err != nil {
 				continue
 			}
-
 			if payLoad.TargetServer == util.ServerID {
 				_ = ps.pushLocal(ctx, payLoad.ReceiverID, payLoad.Msg)
 			}

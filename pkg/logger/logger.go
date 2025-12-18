@@ -1,36 +1,22 @@
 package logger
 
 import (
-	"fmt"
+	"GoChat/config"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 	"os"
-	"reflect"
 )
 
-type LoggerConfig struct {
-	Level      string `mapstructure:"level"`    // 配置日志阈值级别
-	Filename   string `mapstructure:"filename"` // 日志文件名称
-	MaxSize    int    `mapstructure:"max_size"` // 日志文件最大大小
-	MaxAge     int    `mapstructure:"max_age"`
-	MaxBackups int    `mapstructure:"max_backups"`
-	Compress   bool   `mapstructure:"compress"`
-}
-
 // StartLogger 启动日志服务
-func StartLogger() {
-	logCfg := &LoggerConfig{}
-	if err := viper.UnmarshalKey("logger", logCfg); err != nil {
-		panic(fmt.Errorf("unable to decode into %s, %v", reflect.TypeOf(logCfg).Name(), err))
-	}
+func StartLogger(cfg *config.Config) {
 	// 初始化日志服务
-	initLogger(logCfg)
+	initLogger(&cfg.LoggerConfig)
 }
 
 // initLogger 初始化日志服务
-func initLogger(logCfg *LoggerConfig) {
+func initLogger(logCfg *config.LoggerConfig) {
 	core := zapcore.NewCore(getEncoder(), getWriteSyncer(logCfg), getLevelEnabler(logCfg))
 	logger := zap.New(core, zap.AddCaller())
 
@@ -69,7 +55,7 @@ func getEncoder() zapcore.Encoder {
 	return zapcore.NewJSONEncoder(encoderConfig)
 }
 
-func getWriteSyncer(cfg *LoggerConfig) zapcore.WriteSyncer {
+func getWriteSyncer(cfg *config.LoggerConfig) zapcore.WriteSyncer {
 	lumberJackLogger := &lumberjack.Logger{
 		Filename:   cfg.Filename,   // 日志文件路径
 		MaxSize:    cfg.MaxSize,    // 每个日志文件的最大尺寸，单位：MB
@@ -78,14 +64,14 @@ func getWriteSyncer(cfg *LoggerConfig) zapcore.WriteSyncer {
 		Compress:   cfg.Compress,   // 是否压缩旧日志文件
 	}
 	// 在开发环境下，同时输出到控制台和文件
-	if viper.GetString("mode") == "dev" {
+	if viper.GetString("app.mode") == "dev" {
 		return zapcore.NewMultiWriteSyncer(zapcore.AddSync(os.Stdout), zapcore.AddSync(lumberJackLogger))
 	}
 
 	return zapcore.AddSync(lumberJackLogger)
 }
 
-func getLevelEnabler(cfg *LoggerConfig) zapcore.Level {
+func getLevelEnabler(cfg *config.LoggerConfig) zapcore.Level {
 	switch cfg.Level {
 	case "debug":
 		return zapcore.DebugLevel

@@ -13,18 +13,24 @@ import (
  * 对消息生成全局递增的seqID
  */
 
-type SeqFactory struct {
+type ISeqFactoryService interface {
+	GetNextSeqID(ctx context.Context, conversationID string) (uint64, error)
+	CheckAndSetDedup(ctx context.Context, conversationID string, clientMsgID string) (bool, error)
+	CheckAndSetDedupWithSeq(ctx context.Context, conversationID string, clientMsgID string, expire time.Duration) (bool, uint64, error)
+}
+
+type SeqFactoryService struct {
 	ChatCache cache.ICacheRepository
 }
 
-func NewSeqFactory(cc cache.ICacheRepository) *SeqFactory {
-	return &SeqFactory{
+func NewSeqFactory(cc cache.ICacheRepository) ISeqFactoryService {
+	return &SeqFactoryService{
 		ChatCache: cc,
 	}
 }
 
 // GetNextSeqID 获取当前会话的下一个seqID
-func (sf *SeqFactory) GetNextSeqID(ctx context.Context, conversationID string) (uint64, error) {
+func (sf *SeqFactoryService) GetNextSeqID(ctx context.Context, conversationID string) (uint64, error) {
 	key := fmt.Sprintf("im:seq:%s", conversationID)
 	seqID, err := sf.ChatCache.Incr(ctx, key)
 	if err != nil {
@@ -34,7 +40,7 @@ func (sf *SeqFactory) GetNextSeqID(ctx context.Context, conversationID string) (
 }
 
 // CheckAndSetDedup 检查重复并设置去重键: 使用redis SETNX 操作， 对每个对话进行重复性检查
-func (sf *SeqFactory) CheckAndSetDedup(ctx context.Context, conversationID string, clientMsgID string) (bool, error) {
+func (sf *SeqFactoryService) CheckAndSetDedup(ctx context.Context, conversationID string, clientMsgID string) (bool, error) {
 	key := fmt.Sprintf("im:dedup:%s:%s", conversationID, clientMsgID)
 	// 检查当前会话下，由[clientMsgID]发送来的的消息，是否已经被服务端接收
 	suc, err := sf.ChatCache.SetNX(ctx, key, clientMsgID, 30*time.Second)
@@ -46,7 +52,7 @@ func (sf *SeqFactory) CheckAndSetDedup(ctx context.Context, conversationID strin
 }
 
 // CheckAndSetDedupWithSeq 事务化：检查消息幂等性和取号（SeqID）
-func (sf *SeqFactory) CheckAndSetDedupWithSeq(ctx context.Context, conversationID string, clientMsgID string, expire time.Duration) (bool, uint64, error) {
+func (sf *SeqFactoryService) CheckAndSetDedupWithSeq(ctx context.Context, conversationID string, clientMsgID string, expire time.Duration) (bool, uint64, error) {
 	dupKey := fmt.Sprintf("%s:%s:%s", util.RedisDupKey, conversationID, clientMsgID)
 	seqKey := fmt.Sprintf("%s:%s", util.RedisSeqKey, conversationID)
 
@@ -60,13 +66,14 @@ func (sf *SeqFactory) CheckAndSetDedupWithSeq(ctx context.Context, conversationI
 	// 执行事务
 	cmder, err := pipe.Exec(ctx)
 	if err != nil {
-		return false, 0, fmt.Errorf("redis exec failed: %w", err)
+		return false, 0, fmt.Errorf("cache exec failed: %w", err)
 	}
 
 	// 4. 解析结果(事务会返回每个命令的执行结果)
 	if exist := cmder[0].(*redis.IntCmd).Val(); exist == 1 {
 		return false, 0, nil
 	}
+	// TODO：SeqKey 已经不在缓存中，从数据库中获取并重写缓存
 	seqID := cmder[1].(*redis.IntCmd).Val()
 
 	return false, uint64(seqID), nil

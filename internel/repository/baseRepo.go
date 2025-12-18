@@ -17,8 +17,9 @@ type IBaseRepository[T any] interface {
 
 // QueryParams 查询参数
 type QueryParams struct {
-	Offset  int
-	Limit   int
+	Offset  int64
+	Limit   int64
 	OrderBy string
+	Selects []string
 	Filters map[string]interface{}
 }

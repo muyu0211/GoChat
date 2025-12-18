@@ -15,14 +15,14 @@ type MessageModel struct {
 	ReceiverID uint64 `gorm:"type:bigint;not null;comment:接收方id（可以是user也可以是群）"`
 	Content    string `gorm:"type:text;not null;comment:存放信息内容；可以是图片、音频、视频的url"`
 	MsgType    byte   `gorm:"type:tinyint;not null;comment:消息类型"`
-	MsgStatus  byte   `gorm:"type:tinyint;default:1;comment:消息状态：未读、已读、撤回、删除"`
-	IsPushed   bool   `gorm:"default:false;comment:消息是否推送给对方"`
+	MsgStatus  byte   `gorm:"type:tinyint;default:1;comment:消息状态：正常、撤回、删除"`
+	IsPushed   bool   `gorm:"default:false;comment:消息是否推送给对方（对方是否已读）"`
 	Extra      string `gorm:"type:text;comment:存放额外信息(可选)"`
 	CreatedAt  time.Time
 	DeletedAt  gorm.DeletedAt `gorm:"index"`
 }
 
-func TableName() string {
+func (mm MessageModel) TableName() string {
 	return "message"
 }
 

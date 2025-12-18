@@ -15,12 +15,11 @@ func InitRouter(r *gin.Engine) {
 	r.Use(
 		middleware.CorsMiddleware(), // 跨域中间件
 		middleware.GinLogger(),      // 日志中间件
-		middleware.GinRecovery())    // 错误恢复中间件
-	//middleware.RateLimiterMiddleware(db.GetRDB(), middleware.KeyByIP, globalIPLimit)) // 限流中间件
+		middleware.GinRecovery(),    // 错误恢复中间件
+		//middleware.RateLimiterMiddleware(db.GetRDB(), middleware.KeyByIP, globalIPLimit)) // 限流中间件
+	)
 
 	// 注册路由
 	RegisterUserRouter(r)
-	RegisterWsRouter(r)
-
-	//RegisterBoardRouter(r)
+	RegisterChatRouter(r)
 }

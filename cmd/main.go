@@ -1,9 +1,10 @@
 package main
 
 import (
+	"GoChat/config"
 	"GoChat/pkg/auth"
 	"GoChat/pkg/db"
-	lg "GoChat/pkg/logger"
+	"GoChat/pkg/logger"
 	"GoChat/pkg/util"
 	"GoChat/router"
 	"fmt"
@@ -33,9 +34,9 @@ func startServer() {
 	atomic.StorePointer(&ptr, unsafe.Pointer(appCfg))
 }
 
-func config() *appConfig {
-	return (*appConfig)(atomic.LoadPointer(&ptr))
-}
+//func config() *appConfig {
+//	return (*appConfig)(atomic.LoadPointer(&ptr))
+//}
 
 func init() {
 
@@ -43,18 +44,18 @@ func init() {
 
 func main() {
 	// 初始化配置文件
-	util.InitConfig()
+	cfg := config.LoadConfig()
 
 	// 服务启动
-	startServer()
-	lg.StartLogger()
-	db.StartMySQL()
-	db.StartRedis()
-	auth.StartJWT()
+	//startServer()
+	logger.StartLogger(cfg)
+	db.StartMySQL(cfg)
+	db.StartRedis(cfg)
+	auth.StartJWT(cfg)
 
 	// 服务关闭
 	defer func() {
-		lg.CloseLogger()
+		logger.CloseLogger()
 		db.CloseMySQL()
 	}()
 
@@ -69,7 +70,7 @@ func main() {
 	zap.L().Info("================= 服务启动成功 =================")
 	r := gin.New()
 	router.InitRouter(r)
-	if err := r.Run(config().Port); err != nil {
+	if err := r.Run(cfg.BasicConfig.Port); err != nil {
 		zap.L().Fatal("Error: server start error:", zap.Error(err))
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"gopkg.in/gomail.v2"
 	"hash/fnv"
@@ -15,14 +14,6 @@ import (
 	"sync"
 	"time"
 )
-
-func InitConfig() {
-	// 使用viper读取配置文件，进行项目初始化
-	viper.SetConfigFile("./config/config.yml")
-	if err := viper.ReadInConfig(); err != nil {
-		panic(fmt.Errorf("fatal error config file: %w", err))
-	}
-}
 
 type ResMsg struct {
 	Code string      `json:"code"`
@@ -194,4 +185,27 @@ func GetConversationID(userA, userB uint64) string {
 		return fmt.Sprintf("%d_%d", userA, userB)
 	}
 	return fmt.Sprintf("%d_%d", userB, userA)
+}
+
+func SliceToIfaceSlice(slice interface{}) []interface{} {
+	var ifaceSlice []interface{}
+	switch s := slice.(type) {
+	case []string:
+		for _, v := range s {
+			ifaceSlice = append(ifaceSlice, v)
+		}
+	case []int:
+		for _, v := range s {
+			ifaceSlice = append(ifaceSlice, v)
+		}
+	case []int64:
+		for _, v := range s {
+			ifaceSlice = append(ifaceSlice, v)
+		}
+	case []uint64:
+		for _, v := range s {
+			ifaceSlice = append(ifaceSlice, v)
+		}
+	}
+	return ifaceSlice
 }

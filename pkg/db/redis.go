@@ -1,10 +1,10 @@
 package db
 
 import (
+	"GoChat/config"
 	"context"
 	"fmt"
 	"github.com/go-redis/redis/v8"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"time"
 )
@@ -23,19 +23,15 @@ func GetRDS() *redis.Client {
 	return redisClient
 }
 
-func StartRedis() {
-	redisConfig := &RedisConfig{}
-	if err := viper.UnmarshalKey("redis", redisConfig); err != nil {
-		zap.L().Fatal("unmarshal redis config failed", zap.String("err", err.Error()))
-	}
+func StartRedis(cfg *config.Config) {
 	var err error
-	if redisClient, err = initRedis(redisConfig); err != nil {
+	if redisClient, err = initRedis(&cfg.RedisConfig); err != nil {
 		zap.L().Fatal("init redis failed", zap.String("err", err.Error()))
 	}
-	zap.L().Info("redis 初始化成功.")
+	zap.L().Info("cache 初始化成功.")
 }
 
-func initRedis(redisCfg *RedisConfig) (*redis.Client, error) {
+func initRedis(redisCfg *config.RedisConfig) (*redis.Client, error) {
 	redisClient = redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", redisCfg.Host, redisCfg.Port),
 		Password: redisCfg.Password,
