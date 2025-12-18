@@ -17,6 +17,7 @@ import (
 type WsHandler struct {
 	chatService service.IChatService
 	userService service.IUserService
+	syncService *service.SyncService
 }
 
 var upgrader = websocket.Upgrader{
@@ -25,10 +26,11 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true }, // 允许跨域
 }
 
-func NewWsHandler(cs service.IChatService, us service.IUserService) *WsHandler {
+func NewWsHandler(cs service.IChatService, us service.IUserService, ss *service.SyncService) *WsHandler {
 	return &WsHandler{
 		chatService: cs,
 		userService: us,
+		syncService: ss,
 	}
 }
 
@@ -81,6 +83,10 @@ func (wh *WsHandler) Connect(c *gin.Context) {
 	util.SafeGo(func() {
 		// TODO: 设置心跳保活
 		//client.Heartbeat()
+	})
+	util.SafeGo(func() {
+		// 用户上线后进行消息同步
+		wh.syncService.Sync(c, userID)
 	})
 }
 

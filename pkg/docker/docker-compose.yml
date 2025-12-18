@@ -1,0 +1,82 @@
+name: GinChat
+
+services:
+  # MySQL主库服务
+  ginchat_mysql_master:
+    image: mysql:8.0
+    container_name: ginchat_mysql_master
+    restart: always
+    ports:
+      - "3307:3306"
+    volumes:
+      - /home/mysql/node-0/config:/etc/mysql/conf.d
+      - /home/mysql/node-0/data:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=021103
+      # 新增：指定字符集和时区，解决中文乱码和时间问题
+      - MYSQL_INITDB_ARGS=--character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+      - TZ=Asia/Shanghai
+    networks:
+      - ginchat-network
+    # 可选：添加健康检查，确保MySQL启动完成后再启动其他服务
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis主服务
+  redis01:
+    image: bitnami/redis
+    container_name: redis01
+    restart: always
+    ports:
+      - "6380:6379"
+    volumes:
+      - /home/cache/node-0:/bitnami/cache/data
+    environment:
+      - REDIS_REPLICATION_MODE=master
+      - REDIS_PASSWORD=021103
+      - REDIS_DISABLE_COMMANDS=FLUSHDB,FLUSHALL  # 禁用危险命令，可选
+      - REDIS_EXTRA_FLAGS=--appendonly yes --save 900 1 --save 300 10  # AOF开启+RDB快照
+      - TZ=Asia/Shanghai
+    networks:
+      - ginchat-network
+
+  # Kafka服务（单节点模式，controller+broker）
+  kafka:
+    image: 'bitnami/kafka:3.6.2'
+    container_name: kafka
+    restart: always
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    environment:
+      - TZ=Asia/Shanghai
+      - KAFKA_CFG_NODE_ID=0
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://192.168.44.129:9094
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      # 新增：解决目录权限问题，指定运行用户为root（开发环境可用，生产环境建议映射普通用户）
+      - ALLOW_ROOT=yes
+    networks:
+      - ginchat-network
+    ports:
+      - '9094:9094'
+    volumes:
+      - /home/kafka/data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--list", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+# 定义网络（规范：改为小写，与服务内的网络名保持一致）
+networks:
+  ginchat-network:
+    name: GinChat  # 原GinChat改为小写，符合行业惯例
+    driver: bridge
