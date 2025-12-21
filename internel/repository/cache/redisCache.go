@@ -27,6 +27,7 @@ type ICacheRepository interface {
 	SMembers(ctx context.Context, key string) ([]string, error)
 	SRem(ctx context.Context, key string, members ...interface{}) error
 	SMembersWithCheck(ctx context.Context, key string) ([]string, bool, error)
+	ZRemRange(ctx context.Context, key string, score interface{}) error
 }
 
 var (
@@ -188,6 +189,7 @@ func (rc *redisCache) SMembers(ctx context.Context, key string) ([]string, error
 	return result, err
 }
 
+// SRem 删除集合元素
 func (rc *redisCache) SRem(ctx context.Context, key string, members ...interface{}) error {
 	_, err := rc.rdb.SRem(ctx, key, members...).Result()
 	if err != nil {
@@ -214,6 +216,7 @@ func (rc *redisCache) SMembersWithCheck(ctx context.Context, key string) ([]stri
 	return cmd.Val(), true, nil
 }
 
+// ZRemRange 删除小于指定分数的元素
 func (rc *redisCache) ZRemRange(ctx context.Context, key string, score interface{}) error {
 	err := rc.rdb.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("%v", score)).Err()
 	return err

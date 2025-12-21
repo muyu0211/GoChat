@@ -37,11 +37,11 @@ type SendMsg struct {
 type ReplyMsg struct {
 	Cmd            string `json:"cmd"` // "ack、text"
 	ConversationID string `json:"conversation_id"`
-	ClientMsgID    string `json:"client_msg_id"` // 原样返回，方便前端对应
+	ClientMsgID    string `json:"client_msg_id"`
 	Flag           uint8  `json:"flag"`
 	Content        string `json:"content"`
 	SenderID       uint64 `json:"sender_id"`
-	ReceiverID     uint64 `json:"receiver_id"` // 接收者ID
+	ReceiverID     uint64 `json:"receiver_id"`
 	TimeStamp      int64  `json:"time_stamp"`
 	SeqID          uint64 `json:"seq_id"`
 	AckID          uint64 `json:"ack_id"`

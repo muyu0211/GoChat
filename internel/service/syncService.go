@@ -59,7 +59,7 @@ func (ss *SyncService) GetSessions(ctx context.Context, userID uint64) (*dto.Use
 			zap.Uint64("userID", userID))
 	}
 
-	var conversations []dao.ConversationModel
+	var conversations []dao.Conversation
 	var sqlErr error
 	if exist && len(conversationIDs) > 0 {
 		// 缓存命中
@@ -112,7 +112,7 @@ func (ss *SyncService) GetSessions(ctx context.Context, userID uint64) (*dto.Use
 	return userSessions, nil
 }
 
-func (ss *SyncService) updateSessionCache(ctx context.Context, userID uint64, conversations []dao.ConversationModel) error {
+func (ss *SyncService) updateSessionCache(ctx context.Context, userID uint64, conversations []dao.Conversation) error {
 	log.Println("TODO: 更新会话缓存数据")
 	return nil
 }

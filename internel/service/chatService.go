@@ -3,14 +3,21 @@ package service
 import (
 	"GoChat/internel/infrastructure/mq"
 	"GoChat/internel/model/dao"
+	"GoChat/internel/model/dto"
 	"GoChat/internel/repository"
+	"GoChat/internel/repository/cache"
 	ws "GoChat/internel/websocket"
 	"GoChat/pkg/util"
 	"context"
-	"go.uber.org/zap"
+	"fmt"
 	"log"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 type IChatService interface {
@@ -25,6 +32,9 @@ type chatService struct {
 	seqFactory  ISeqFactoryService
 	pushService IPushService
 	chatRepo    repository.IChatRepo
+	converRepo  repository.IConversationRepo
+	redisCache  cache.ICacheRepository
+	tx          ITxManager
 	producer    mq.Producer
 	consumer    mq.Consumer
 
@@ -35,15 +45,19 @@ type chatService struct {
 	flushInterval time.Duration // 多久刷一次库
 }
 
-func NewChatService(sq ISeqFactoryService, ps IPushService, cr repository.IChatRepo, producer mq.Producer, consumer mq.Consumer) IChatService {
+func NewChatService(sq ISeqFactoryService, ps IPushService, cr repository.IChatRepo, ccr repository.IConversationRepo,
+	tx ITxManager, rc cache.ICacheRepository, producer mq.Producer, consumer mq.Consumer) IChatService {
 	cs := &chatService{
 		seqFactory:    sq,
 		pushService:   ps,
 		chatRepo:      cr,
+		converRepo:    ccr,
+		tx:            tx,
+		redisCache:    rc,
 		producer:      producer,
 		consumer:      consumer,
 		buffer:        make(map[string]uint64),
-		flushInterval: 10 * time.Second,
+		flushInterval: 5 * time.Second,
 	}
 
 	// 注册ack消息处理函数, 注意：handler 必须是并发安全的
@@ -80,21 +94,46 @@ func (c *chatService) HandleChatMsg(ctx context.Context, client *ws.Client, req 
 		log.Println("消息重复")
 		return nil
 	}
-	// 3. 消息落库
+
 	createdAt := time.Now().UTC()
-	msg := dao.MessageModel{
-		ConversationID: conversationID,
-		SeqID:          seqID,
-		SenderID:       senderID,
-		ReceiverID:     req.ReceiverID,
-		Content:        req.Content,
-		MsgType:        req.MsgType,
-		MsgStatus:      util.MsgStatusRead,
-		CreatedAt:      createdAt,
-	}
-	if err = util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
-		return c.chatRepo.Create(ctx, &msg)
-	}); err != nil {
+	// 3. 消息落库（事务操作：message表新增记录 + conversation表更新相应字段）
+	err = c.tx.ExecTx(ctx, func(ctx context.Context) error {
+		// 创建message表记录
+		msg := dao.MessageModel{
+			ConversationID: conversationID,
+			SeqID:          seqID,
+			SenderID:       senderID,
+			ReceiverID:     req.ReceiverID,
+			Content:        req.Content,
+			MsgType:        req.MsgType,
+			MsgStatus:      util.MsgStatusRead,
+			CreatedAt:      createdAt,
+		}
+		err := c.chatRepo.Create(ctx, &msg)
+
+		err = c.converRepo.UpdateSenderConversation(
+			ctx,
+			req.SenderID,   // Owner: A
+			req.ReceiverID, // Other: B
+			conversationID,
+			seqID,
+			createdAt)
+
+		err = c.converRepo.UpdateReceiverConversation(
+			ctx,
+			req.SenderID,   // Owner: A
+			req.ReceiverID, // Other: B
+			conversationID,
+			seqID,
+			createdAt)
+
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		zap.L().Error("消息落库失败", zap.Error(err))
 		return err
 	}
 
@@ -147,6 +186,7 @@ func (c *chatService) pushMsg(ctx context.Context, reply *ws.ReplyMsg) {
 func (c *chatService) HandleAckMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
 	// 1.构造kafka消息
 	event := mq.AckEvent{
+		SenderID:       req.SenderID,
 		ConversationID: req.ConversationID,
 		AckID:          req.AckID,
 		TimeStamp:      req.TimeStamp,
@@ -157,9 +197,9 @@ func (c *chatService) HandleAckMsg(ctx context.Context, client *ws.Client, req *
 		zap.L().Error("序列化消息失败", zap.Error(err))
 		return err
 	}
-	// Key 设计：使用 ConversationID 保证同一个会话的 ACK 进入同一个 Partition，保证有序性
-	key := util.GetConversationID(req.SenderID, req.ReceiverID)
-	if err = c.producer.Publish(ctx, mq.KafkaAckTopic, []byte(key), msgBytes); err != nil {
+	// Key 设计：使用 SenderID 和 ConversationID 保证同一个会话的 ACK 进入同一个 Partition，保证有序性
+	key := fmt.Sprintf("%s:%s", strconv.FormatUint(req.SenderID, 10), req.ConversationID)
+	if err = c.producer.Publish(ctx, []byte(key), msgBytes); err != nil {
 		zap.L().Error("[Kafka] 发送消息失败", zap.Error(err))
 	}
 	return nil
@@ -185,6 +225,7 @@ func (c *chatService) handlerAckFromMq(ctx context.Context, key, value []byte) e
 	} else {
 		c.buffer[keyStr] = event.AckID
 	}
+	log.Println("消费者收到消息后的ackID缓存情况：", c.buffer)
 	return nil
 }
 
@@ -205,19 +246,83 @@ func (c *chatService) flushLoop(ctx context.Context) {
 }
 
 func (c *chatService) flushToDB() {
-	log.Println("将缓存更新至数据库")
-
-	// 核心技巧：将当前 buffer 赋值给临时变量，并创建一个新的空 map 给业务继续用
-	// 这样锁占用的时间仅仅是 map 赋值的时间（纳秒级）
+	// 核心技巧：将当前 buffer 赋值给临时变量，并创建一个新的空 map 给业务继续用 （写时复制Copy on Write）
 	c.bufferLock.Lock()
+	if len(c.buffer) == 0 {
+		c.bufferLock.Unlock()
+		return
+	}
 	pendingMap := c.buffer
+	c.buffer = make(map[string]uint64)
 	c.bufferLock.Unlock()
 
-	// 遍历pending，依次进行更新
-	for _, _ = range pendingMap {
-		// 1. 将redis中seqID小于maxAckID的message设置为已删除
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-		// 2. 更新mysql中的conversation表，将last_ack_id更新为maxAckID
+	// map 转 slice
+	updates := make([]*dto.UpdatesAck, 0, len(pendingMap))
+	for key, lastAckId := range pendingMap {
+		userIDStr, convID, found := strings.Cut(key, ":")
+		if !found {
+			continue
+		}
+		uid, _ := strconv.ParseUint(userIDStr, 10, 64)
+		updates = append(updates, &dto.UpdatesAck{
+			UserID:         uid,
+			ConversationID: convID,
+			LastAckID:      lastAckId,
+		})
+	}
+
+	// 对slice 进行全局排序
+	sort.Slice(updates, func(i, j int) bool {
+		if updates[i].UserID != updates[j].UserID {
+			return updates[i].UserID < updates[j].UserID
+		}
+		return updates[i].ConversationID < updates[j].ConversationID
+	})
+
+	// 并发批次处理
+	batchSize := 500
+	wg := &sync.WaitGroup{}
+	for i := 0; i < len(updates); i += batchSize {
+		end := i + batchSize
+		if end > len(updates) {
+			end = len(updates)
+		}
+		// 切分批次
+		batch := updates[i:end]
+		wg.Add(1)
+		go func(batch []*dto.UpdatesAck) {
+			defer wg.Done()
+			// TODO: 进行信号量操作
+			c.processBatchAck(ctx, batch)
+		}(batch)
+	}
+
+	wg.Wait()
+}
+
+func (c *chatService) processBatchAck(ctx context.Context, batch []*dto.UpdatesAck) {
+	if len(batch) == 0 {
+		return
+	}
+
+	pipe := c.redisCache.TxPipeline()
+
+	for _, update := range batch {
+		redisKey := fmt.Sprintf("%s:%d:%s", util.RedisBoxKey, update.UserID, update.ConversationID)
+		pipe.ZRemRangeByScore(ctx, redisKey, "-inf", strconv.FormatUint(update.LastAckID, 10))
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		zap.L().Error("[Redis] Pipeline删除消息失败", zap.Error(err))
+	}
+
+	if err := c.converRepo.BulkUpdateLastAck(ctx, batch); err != nil {
+		zap.L().Error("[MySQL] Batch update failed",
+			zap.Uint64("start_user_id", batch[0].UserID),
+			zap.Int("batch_size", len(batch)),
+			zap.Error(err))
 	}
 }
 

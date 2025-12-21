@@ -2,11 +2,8 @@ package mq
 
 import "encoding/json"
 
-const (
-	KafkaAckTopic = "im_topic_ack"
-)
-
 type AckEvent struct {
+	SenderID       uint64 `json:"sender_id"` // 发送者ID
 	ConversationID string `json:"conversation_id"`
 	Content        string `json:"content"`
 	TimeStamp      int64  `json:"time_stamp"`

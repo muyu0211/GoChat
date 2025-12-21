@@ -8,14 +8,15 @@ import (
 	"GoChat/pkg/util"
 	"GoChat/router"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/spf13/viper"
-	"go.uber.org/zap"
 	"reflect"
 	"runtime/debug"
 	"sync/atomic"
 	"time"
 	"unsafe"
+
+	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
+	"go.uber.org/zap"
 )
 
 var ptr unsafe.Pointer
@@ -52,6 +53,7 @@ func main() {
 	db.StartMySQL(cfg)
 	db.StartRedis(cfg)
 	auth.StartJWT(cfg)
+	util.StartAntsPool(cfg)
 
 	// 服务关闭
 	defer func() {
