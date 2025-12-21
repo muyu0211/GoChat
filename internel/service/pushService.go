@@ -79,7 +79,7 @@ func (ps *PushService) pushLocal(ctx context.Context, userID uint64, msg []byte)
 		select {
 		case client.DataBuffer <- msg:
 			return nil
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond): // 缓冲区满则阻塞等待
 			return bufio.ErrBufferFull
 		}
 	}

@@ -5,9 +5,11 @@ import (
 	"GoChat/pkg/logger"
 	"context"
 	"errors"
+	"log"
+	"sync"
+
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
-	"sync"
 )
 
 type Consumer interface {
@@ -22,33 +24,28 @@ type MessageHandler func(ctx context.Context, key, value []byte) error
 type kafkaConsumer struct {
 	r         *kafka.Reader
 	handler   MessageHandler
-	closeOnce sync.Once // 确保Close方法只执行一次
+	closeOnce sync.Once
 }
 
 // NewKafkaConsumer 创建Kafka消费者实例
-// 入参：全局配置、消费主题、业务处理函数
-// 返参：消费者实例、错误
-func NewKafkaConsumer(cfg *config.KafkaConfig, topic string) (Consumer, error) {
-	// 1. 参数校验
-	if len(cfg.Brokers) == 0 {
-		return nil, errors.New("kafka brokers is empty")
+func NewKafkaConsumer(brokers []string, cfg *config.BusinessConfig) (Consumer, error) {
+	if len(brokers) == 0 || cfg.GroupID == "" || cfg.Topic == "" {
+		return nil, errors.New("invalid consumer options")
 	}
-	if topic == "" {
-		return nil, errors.New("kafka topic is empty")
-	}
-	//if cfg.GroupID == "" {
-	//	return nil, errors.New("kafka group id is empty")
-	//}
 
 	r := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: cfg.Brokers,
-		Topic:   topic,
-		Logger:  logger.NewZapKafkaAdapter(logger.KafkaLogger.Sugar(), zap.InfoLevel),
+		Brokers:        brokers,
+		Topic:          cfg.Topic,
+		GroupID:        cfg.GroupID,
+		MinBytes:       cfg.Consumer.MinBytes,
+		MaxBytes:       cfg.Consumer.MaxBytes,
+		MaxWait:        cfg.Consumer.MaxWait,
+		CommitInterval: cfg.Consumer.CommitInterval,
+		StartOffset:    cfg.Consumer.StartOffset,
+		//Logger:         logger.NewZapKafkaAdapter(logger.KafkaLogger.Sugar(), zap.DebugLevel),
 	})
 
-	return &kafkaConsumer{
-		r: r,
-	}, nil
+	return &kafkaConsumer{r: r}, nil
 }
 
 func (kc *kafkaConsumer) RegisterHandler(handler MessageHandler) {
@@ -61,6 +58,7 @@ func (kc *kafkaConsumer) Consume(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			log.Println("消费者协程关闭")
 			kc.Close()
 		default:
 		}
@@ -74,6 +72,7 @@ func (kc *kafkaConsumer) Consume(ctx context.Context) {
 			logger.KafkaLogger.Warn("[Kafka] Fetch error", zap.Error(err))
 			continue
 		}
+		log.Println("消费者拉取到消息：", string(msg.Key), ", ", string(msg.Value))
 
 		// 执行业务处理
 		if kc.handler != nil {

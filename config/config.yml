@@ -31,6 +31,21 @@ redis:
   
 kafka:
   brokers: ["192.168.44.129:9094"]      # Kafka broker地址（多个用数组）
+  ack:
+    topic: "im_ack_events"
+    group_id: "im_ack_group_01"
+    producer:  # 生产者调优：侧重吞吐量
+      batch_size: 100            # 内存攒够 100 条消息才发往 Kafka
+      batch_timeout: 100ms       # 或者距离上次发送过了 100ms 也发，保证实时性
+      write_timeout: 5s          # 写入 Kafka 的网络超时
+      compression: "snappy"      # 推荐 snappy，压缩率和 CPU 损耗最平衡，适合 JSON
+    consumer: # 消费者调优：侧重批量处理能力
+      min_bytes: 1               # 10KB。Broker 攒够 10KB 数据才推给消费者，减少网络 IO； 测试场景修改为1，防止消费端长时间阻塞
+      max_wait: 250ms            # Broker 最多等待多久，即使没达到min_bytes也会推送消息（500ms)
+      max_bytes: 10485760        # 10MB。单次拉取最大数据量，防止 OOM
+      commit_interval: 1s        # 自动提交 Offset 的频率
+      workers: 4                 # 并行处理协程数，建议设为 CPU 核心数的 1-2 倍
+      start_offset: -2
 
 # 鉴权配置
 jwt:
@@ -67,3 +82,8 @@ logger:
   max_age: 30               # 日志文件保留天数
   max_backups: 7            # 最多保留的备份文件数
   compress: true            # 是否压缩备份文件
+  
+ants: 
+  pool_size: 100
+  max_capacity: 1000
+  expiry_duration: 5s

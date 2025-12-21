@@ -2,8 +2,9 @@ package config
 
 import (
 	"fmt"
-	"github.com/spf13/viper"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 type Config struct {
@@ -13,6 +14,7 @@ type Config struct {
 	KafkaConfig  `mapstructure:"kafka"`
 	LoggerConfig `mapstructure:"logger"`
 	JWTConfig    `mapstructure:"jwt"`
+	AntsConfig   `mapstructure:"ants"`
 }
 
 type BasicConfig struct {
@@ -62,6 +64,11 @@ type JWTConfig struct {
 	SignMethod  string `mapstructure:"sign_method"`  // 签名方法
 }
 
+type AntsConfig struct {
+	PoolSize       int           `mapstructure:"pool_size"`
+	ExpiryDuration time.Duration `mapstructure:"expiry_duration"`
+}
+
 var Cfg *Config
 
 // LoadConfig 加载所有配置
@@ -74,5 +81,8 @@ func LoadConfig() *Config {
 	if err := viper.Unmarshal(&Cfg); err != nil {
 		panic(fmt.Errorf("unable to decode into struct: %w", err))
 	}
+
+	// 初始化其他配置
+	LoadKafkaConfig(Cfg)
 	return Cfg
 }

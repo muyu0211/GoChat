@@ -26,7 +26,11 @@ func NewTxManager(db *gorm.DB) ITxManager {
 func (t *TxManager) ExecTx(ctx context.Context, fn svsFn, opts ...*sql.TxOptions) error {
 	return t.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 将tx句柄存入ctx中
-		txCtx := util.WithTx(ctx, tx)
+		txCtx := withTx(ctx, tx)
 		return fn(txCtx)
 	}, opts...)
+}
+
+func withTx(ctx context.Context, tx *gorm.DB) context.Context {
+	return context.WithValue(ctx, util.CtxTxKey{}, tx)
 }

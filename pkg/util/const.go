@@ -1,8 +1,9 @@
 package util
 
 import (
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 var (
@@ -21,7 +22,7 @@ const (
 	CHARSET              = "abcdefghijklmnopqrstuWXyZABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	UsernameSuffixLength = 12
 
-	EmailTitle = "UrCloth验证码"
+	EmailTitle = "GoChat验证码"
 	EmailHost  = "smtp.qq.com"
 	EmailPort  = 25
 	EmailUser  = "2193442725@qq.com"

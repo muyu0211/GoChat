@@ -2,10 +2,11 @@ package util
 
 import (
 	"fmt"
-	"go.uber.org/zap"
 	"reflect"
 	"runtime"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 const (

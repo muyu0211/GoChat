@@ -1,29 +1,33 @@
 package dao
 
 import (
+	"time"
+
 	"go.uber.org/zap"
 	"gorm.io/gorm"
-	"time"
 )
 
-// ConversationModel 代表用户的一个聊天会话 (例如 UserA 和 UserB 的聊天)
-type ConversationModel struct {
+// Conversation 代表用户的一个聊天会话 (例如 UserA 和 UserB 的聊天)
+type Conversation struct {
 	ID             uint64 `gorm:"primaryKey"`
-	OwnerID        string `gorm:"type:varchar(32);index:idx_owner_updated;comment:属于谁"`
-	ConversationID string `gorm:"type:varchar(64);index;comment:会话ID (A_B)"`
-	OtherUserID    string `gorm:"type:varchar(32);comment:对方ID"`
+	OwnerID        uint64 `gorm:"index:idx_owner_updated;comment:属于谁"`
+	ConversationID string `gorm:"index;comment:会话ID (A_B)"`
+	OtherUserID    uint64 `gorm:"comment:对方ID"`
 	LastSeqID      uint64 `gorm:"default:0;comment:最新一条消息的SeqID"`
 	LastAckID      uint64 `gorm:"default:0;comment:最后确认接收的SeqID"`
 	UnreadCount    uint64 `gorm:"default:0;comment:未读数"`
+	IsPinned       bool   `gorm:"default:false;comment:是否置顶"`
+	IsMuted        bool   `gorm:"default:false;comment:是否免打扰"`
 	UpdatedAt      time.Time
+	DeletedAt      gorm.DeletedAt `gorm:"index"`
 }
 
-func (cm ConversationModel) TableName() string {
+func (cm Conversation) TableName() string {
 	return "conversation"
 }
 
 func MigrateConversation(db *gorm.DB) {
-	err := db.AutoMigrate(&ConversationModel{})
+	err := db.AutoMigrate(&Conversation{})
 	if err != nil {
 		zap.L().Warn("Conversation Table Create Warn:", zap.Error(err))
 	}
