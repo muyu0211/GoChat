@@ -5,9 +5,10 @@ import (
 	"GoChat/pkg/util"
 	"context"
 	"errors"
+	"log"
+
 	"go.uber.org/zap"
 	"gorm.io/gorm"
-	"log"
 )
 
 var (
@@ -16,7 +17,7 @@ var (
 
 type IChatRepo interface {
 	IBaseRepository[dao.MessageModel]
-	GetByConversationIDAfterSeqID(ctx context.Context, conversationID string, seqID uint64, limit int64) ([]dao.MessageModel, int64, error)
+	GetMsgsByLastSeqID(ctx context.Context, userID uint64, conversationID string, seqID uint64, limit int64) ([]dao.MessageModel, error)
 	UpdateMsgStatus(ctx context.Context, conversationID string, seqID uint64, isPushed bool) error
 }
 
@@ -34,7 +35,6 @@ func (r *chatRepo) getTx(ctx context.Context) *gorm.DB {
 	if tx := util.GetTx(ctx); tx != nil {
 		return tx
 	}
-	log.Println("未获取到事务句柄")
 	return r.db
 }
 func (r *chatRepo) GetByID(ctx context.Context, id uint64) (*dao.MessageModel, error) {
@@ -56,32 +56,48 @@ func (r *chatRepo) Update(ctx context.Context, msg *dao.MessageModel) error {
 	return nil
 }
 func (r *chatRepo) List(ctx context.Context, params QueryParams) ([]dao.MessageModel, int64, error) {
-	db := r.getTx(ctx)
+	db := r.getTx(ctx).WithContext(ctx)
 	var msgs []dao.MessageModel
-	err := db.Model(&dao.MessageModel{}).WithContext(ctx).
-		Limit(int(params.Limit)).
-		Offset(int(params.Offset)).
-		Order(params.OrderBy).
-		Select(params.Selects).
-		Where(params.Filters).
-		Find(&msgs).Error
-	if err != nil {
+	var total int64
+
+	base := db.Model(&dao.MessageModel{}).
+		Where(params.Query, params.Args...)
+
+	if err := base.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
-	return msgs, int64(len(msgs)), nil
+
+	q := base
+	if len(params.Selects) > 0 {
+		q = q.Select(params.Selects)
+	}
+	if params.OrderBy != "" {
+		q = q.Order(params.OrderBy)
+	}
+	if params.Limit > 0 {
+		q = q.Limit(int(params.Limit))
+	}
+	if params.Offset > 0 {
+		q = q.Offset(int(params.Offset))
+	}
+	if err := q.Find(&msgs).Error; err != nil {
+		return nil, 0, err
+	}
+	return msgs, total, nil
 }
 
-func (r *chatRepo) GetByConversationIDAfterSeqID(ctx context.Context, conversationID string, seqID uint64, limit int64) ([]dao.MessageModel, int64, error) {
-	params := QueryParams{
-		Selects: []string{"id", "content", "conversation_id", "sender_id", "receiver_id", "msg_type", "msg_status", "seq_id", "created_at"},
-		Filters: map[string]interface{}{
-			"conversation_id": conversationID,
-			"seq_id >":        seqID,
-		},
-		OrderBy: "seq_id ASC",
-		Limit:   limit,
-	}
-	return r.List(ctx, params)
+func (r *chatRepo) GetMsgsByLastSeqID(ctx context.Context, userID uint64, conversationID string, seqID uint64, limit int64) ([]dao.MessageModel, error) {
+	var msgs []dao.MessageModel
+
+	log.Printf("数据库查找: %s, %d", conversationID, seqID)
+	err := r.getTx(ctx).
+		Model(&dao.MessageModel{}).
+		Where("conversation_id = ? AND seq_id > ?", conversationID, seqID).
+		Order("seq_id ASC").
+		Limit(int(limit)).
+		Find(&msgs).Error
+
+	return msgs, err
 }
 
 func (r *chatRepo) UpdateMsgStatus(ctx context.Context, conversationID string, seqID uint64, isPushed bool) error {

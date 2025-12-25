@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
@@ -46,7 +47,11 @@ func (r *userRepo) GetByID(ctx context.Context, id uint64) (*dao.UserBasicModel,
 
 func (r *userRepo) Create(ctx context.Context, user *dao.UserBasicModel) error {
 	db := r.getTx(ctx)
-	return db.Create(user).Error
+	err := db.Create(user).Error
+	if isDuplicateError(err) {
+		return gorm.ErrDuplicatedKey
+	}
+	return nil
 }
 
 func (r *userRepo) Delete(ctx context.Context, user *dao.UserBasicModel) error {

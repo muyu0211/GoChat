@@ -2,6 +2,9 @@ package repository
 
 import (
 	"context"
+	"errors"
+
+	"github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -21,5 +24,14 @@ type QueryParams struct {
 	Limit   int64
 	OrderBy string
 	Selects []string
-	Filters map[string]interface{}
+	Query   []string
+	Args    []interface{}
+}
+
+func isDuplicateError(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1062
+	}
+	return false
 }

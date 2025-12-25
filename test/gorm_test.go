@@ -1,12 +1,22 @@
 package test
 
 import (
+	"GoChat/config"
+	"GoChat/internel/model/dao"
 	"GoChat/internel/websocket"
+	"GoChat/pkg/auth"
+	"GoChat/pkg/db"
+	"GoChat/pkg/logger"
+	"GoChat/pkg/util"
+	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
 	"testing"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type PushPayLoad struct {
@@ -53,4 +63,25 @@ func TestTicker(t *testing.T) {
 			}()
 		}
 	}
+}
+
+func TestGorm(t *testing.T) {
+	// 初始化配置文件
+	cfg := config.LoadConfig()
+
+	// 服务启动
+	//startServer()
+	logger.StartLogger(cfg)
+	db.StartMySQL(cfg)
+	db.StartRedis(cfg)
+	auth.StartJWT(cfg)
+	util.StartAntsPool(cfg)
+
+	dbs := db.GetDBS()
+	var conversation dao.Conversation
+	result := dbs.Master.Model(&dao.Conversation{}).WithContext(context.Background()).
+		Select("last_seq_id").
+		Where("owner_id = ? and conversation_id = ?", 1, "1_2").Find(&conversation)
+
+	t.Log(errors.Is(result.Error, gorm.ErrRecordNotFound))
 }

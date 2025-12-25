@@ -1,12 +1,15 @@
 package service
 
 import (
+	"GoChat/internel/repository"
 	"GoChat/internel/repository/cache"
 	"GoChat/pkg/util"
 	"context"
 	"fmt"
-	"github.com/go-redis/redis/v8"
+	"log"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 /**
@@ -16,23 +19,25 @@ import (
 type ISeqFactoryService interface {
 	GetNextSeqID(ctx context.Context, conversationID string) (uint64, error)
 	CheckAndSetDedup(ctx context.Context, conversationID string, clientMsgID string) (bool, error)
-	CheckAndSetDedupWithSeq(ctx context.Context, conversationID string, clientMsgID string, expire time.Duration) (bool, uint64, error)
+	CheckAndSetDedupWithSeq(ctx context.Context, userID uint64, conversationID string, clientMsgID string, expire time.Duration) (bool, uint64, error)
 }
 
 type SeqFactoryService struct {
-	ChatCache cache.ICacheRepository
+	chatCache cache.ICacheRepository
+	convRepo  repository.IConversationRepo
 }
 
-func NewSeqFactory(cc cache.ICacheRepository) ISeqFactoryService {
+func NewSeqFactory(cc cache.ICacheRepository, cr repository.IConversationRepo) ISeqFactoryService {
 	return &SeqFactoryService{
-		ChatCache: cc,
+		chatCache: cc,
+		convRepo:  cr,
 	}
 }
 
 // GetNextSeqID 获取当前会话的下一个seqID
 func (sf *SeqFactoryService) GetNextSeqID(ctx context.Context, conversationID string) (uint64, error) {
 	key := fmt.Sprintf("im:seq:%s", conversationID)
-	seqID, err := sf.ChatCache.Incr(ctx, key)
+	seqID, err := sf.chatCache.Incr(ctx, key)
 	if err != nil {
 		return 0, ErrServerNotAvailable
 	}
@@ -43,7 +48,7 @@ func (sf *SeqFactoryService) GetNextSeqID(ctx context.Context, conversationID st
 func (sf *SeqFactoryService) CheckAndSetDedup(ctx context.Context, conversationID string, clientMsgID string) (bool, error) {
 	key := fmt.Sprintf("im:dedup:%s:%s", conversationID, clientMsgID)
 	// 检查当前会话下，由[clientMsgID]发送来的的消息，是否已经被服务端接收
-	suc, err := sf.ChatCache.SetNX(ctx, key, clientMsgID, 30*time.Second)
+	suc, err := sf.chatCache.SetNX(ctx, key, clientMsgID, 30*time.Second)
 	if err != nil {
 		return false, err
 	}
@@ -52,29 +57,73 @@ func (sf *SeqFactoryService) CheckAndSetDedup(ctx context.Context, conversationI
 }
 
 // CheckAndSetDedupWithSeq 事务化：检查消息幂等性和取号（SeqID）
-func (sf *SeqFactoryService) CheckAndSetDedupWithSeq(ctx context.Context, conversationID string, clientMsgID string, expire time.Duration) (bool, uint64, error) {
-	dupKey := fmt.Sprintf("%s:%s:%s", util.RedisDupKey, conversationID, clientMsgID)
-	seqKey := fmt.Sprintf("%s:%s", util.RedisSeqKey, conversationID)
+func (sf *SeqFactoryService) CheckAndSetDedupWithSeq(
+	ctx context.Context,
+	userID uint64,
+	conversationID string,
+	clientMsgID string,
+	dupExpire time.Duration) (duplicated bool, seq uint64, err error) {
 
-	// Redis事务：MULTI/EXEC
-	pipe := sf.ChatCache.TxPipeline()
+	dupKey := util.GetRedisDupKey(conversationID, clientMsgID)
+	seqKey := util.GetRedisSeqKey(conversationID)
 
-	pipe.Exists(ctx, dupKey)
-	pipe.Incr(ctx, seqKey)
-	pipe.SetEX(ctx, dupKey, 1, expire)
-
-	// 执行事务
-	cmder, err := pipe.Exec(ctx)
+	// 1. 执行去重和取号
+	ret, err := sf.chatCache.DedupAndSeq(ctx, []string{dupKey, seqKey}, dupExpire)
 	if err != nil {
-		return false, 0, fmt.Errorf("cache exec failed: %w", err)
+		return true, 0, fmt.Errorf("lua script run failed: %w", err)
+	}
+	switch ret {
+	case 0: // 重复消息
+		return true, 0, nil
+	case -1: // 可能需要初始化 seqID 或从数据库中获取seqID
+		var seqID uint64
+		if seqID, err = sf.initSeqIfNeeded(ctx, userID, conversationID, seqKey); err != nil {
+			return false, 0, fmt.Errorf("init seqID failed: %w", err)
+		}
+		log.Printf("初始化序号seq：%d, err: %v", seqID, err)
+		return false, seqID, nil
+	default:
+		return false, uint64(ret), nil
+	}
+}
+
+func (sf *SeqFactoryService) initSeqIfNeeded(
+	ctx context.Context,
+	userID uint64,
+	conversationID string,
+	seqKey string,
+) (uint64, error) {
+
+	// 1. 尝试获取初始化锁（5 秒）
+	lockKey := util.GetRedisSeqLockKey(conversationID)
+	ok, err := sf.chatCache.SetNX(ctx, lockKey, 1, 5*time.Second)
+	if err != nil {
+		return 0, err
 	}
 
-	// 4. 解析结果(事务会返回每个命令的执行结果)
-	if exist := cmder[0].(*redis.IntCmd).Val(); exist == 1 {
-		return false, 0, nil
+	if !ok {
+		// 2. 其他 goroutine 正在初始化，等待一下
+		time.Sleep(20 * time.Millisecond)
+		return 0, nil
 	}
-	// TODO：SeqKey 已经不在缓存中，从数据库中获取并重写缓存
-	seqID := cmder[1].(*redis.IntCmd).Val()
 
-	return false, uint64(seqID), nil
+	// 3. double check：防止重复初始化
+	exist, err := sf.chatCache.Exists(ctx, seqKey)
+	if err != nil {
+		return 0, err
+	}
+	if exist {
+		return 0, nil
+	}
+
+	// 4. 从 DB 读取 lastSeq
+	lastSeq, err := sf.convRepo.GetLastSeqID(ctx, userID, conversationID)
+	if err != nil || lastSeq == 0 {
+		// 新会话兜底
+		zap.L().Error("GetLastSeqID failed", zap.Error(err))
+		lastSeq = 1
+	}
+
+	// 5. 初始化 seqKey（不设置 TTL）
+	return lastSeq, sf.chatCache.Set(ctx, seqKey, lastSeq, 0)
 }

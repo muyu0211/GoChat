@@ -5,13 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
+
 	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
-	"time"
 )
+
+// 预编译 Lua 脚本（提升性能，避免每次执行都解析脚本）
+var dedupAndSeqScript = redis.NewScript(DedupAndSeqLua)
 
 type ICacheRepository interface {
 	TxPipeline() redis.Pipeliner
+	Exists(ctx context.Context, keys ...string) (bool, error)
 	Get(context.Context, string, interface{}) (bool, error)
 	Set(context.Context, string, interface{}, time.Duration) error
 	Delete(context.Context, ...string) error
@@ -20,14 +25,17 @@ type ICacheRepository interface {
 	Publish(ctx context.Context, channel string, message interface{}) error
 	Subscribe(ctx context.Context, channel string) *redis.PubSub
 	ZAdd(ctx context.Context, key string, score float64, member []byte, expire time.Duration) error
-	ZRange(ctx context.Context, key string, start uint64, limit int64) ([][]byte, error)
+	ZRange(ctx context.Context, key string, start uint64, limit int64) ([][]byte, bool, error)
 	HSet(ctx context.Context, key string, fields ...map[string]interface{}) error
 	HMGet(ctx context.Context, key string, fields ...string) ([]interface{}, error)
-	SAdd(ctx context.Context, key string, members ...interface{}) error
+	SAdd(ctx context.Context, key string, expire time.Duration, members ...interface{}) error
 	SMembers(ctx context.Context, key string) ([]string, error)
 	SRem(ctx context.Context, key string, members ...interface{}) error
 	SMembersWithCheck(ctx context.Context, key string) ([]string, bool, error)
 	ZRemRange(ctx context.Context, key string, score interface{}) error
+
+	DedupAndSeq(ctx context.Context, keys []string, expire time.Duration) (int64, error)
+	UpdateUserConv(ctx context.Context, key string, expire time.Duration, convIDs []string) error
 }
 
 var (
@@ -36,6 +44,7 @@ var (
 	ErrMarshal   = errors.New("cache marshal error")
 	ErrDel       = errors.New("cache del error")
 	ErrPublish   = errors.New("cache publish error")
+	ErrType      = errors.New("data type error")
 )
 
 type redisCache struct {
@@ -48,6 +57,15 @@ func NewRedisCache(rdb *redis.Client) ICacheRepository {
 
 func (rc *redisCache) TxPipeline() redis.Pipeliner {
 	return rc.rdb.TxPipeline()
+}
+
+func (rc *redisCache) Exists(ctx context.Context, keys ...string) (bool, error) {
+	result, err := rc.rdb.Exists(ctx, keys...).Result()
+	if err != nil {
+		zap.L().Error("cache get error", zap.Error(err), zap.Strings("keys", keys))
+		return false, ErrGet
+	}
+	return result > 0, nil
 }
 
 // Set 通用方法
@@ -134,24 +152,32 @@ func (rc *redisCache) ZAdd(ctx context.Context, key string, score float64, membe
 	return err
 }
 
-func (rc *redisCache) ZRange(ctx context.Context, key string, start uint64, limit int64) ([][]byte, error) {
-	// Range: (minSeq, +inf]
-	// 注意：Redis ZRangeByScore 默认是闭区间，我们需要开区间，所以用 "(" + minSeq
+func (rc *redisCache) ZRange(ctx context.Context, key string, start uint64, limit int64) ([][]byte, bool, error) {
+	exist, err := rc.rdb.Exists(ctx, key).Result()
+	if err != nil {
+		return nil, false, err
+	}
+	if exist == 0 {
+		return nil, false, nil
+	}
+
+	// Range: [minSeq, +inf]
 	opt := &redis.ZRangeBy{
-		Min:   fmt.Sprintf("(%d", start),
+		Min:   fmt.Sprintf("%d", start),
 		Max:   "+inf",
-		Count: int64(limit), // Limit 限制
+		Count: limit,
 	}
 	// 查询redis
 	memStr, err := rc.rdb.ZRangeByScore(ctx, key, opt).Result()
 	if err != nil {
-		return nil, err
+		zap.L().Error("cache get error", zap.Error(err), zap.String("key", key))
+		return nil, false, err
 	}
 	res := make([][]byte, 0)
 	for _, str := range memStr {
 		res = append(res, []byte(str))
 	}
-	return res, nil
+	return res, true, nil
 }
 
 func (rc *redisCache) HSet(ctx context.Context, key string, fields ...map[string]interface{}) error {
@@ -170,10 +196,14 @@ func (rc *redisCache) HMGet(ctx context.Context, key string, fields ...string) (
 	return result, err
 }
 
-func (rc *redisCache) SAdd(ctx context.Context, key string, members ...interface{}) error {
-	_, err := rc.rdb.SAdd(ctx, key, members...).Result()
-	if err != nil {
+func (rc *redisCache) SAdd(ctx context.Context, key string, expire time.Duration, members ...interface{}) error {
+	if _, err := rc.rdb.SAdd(ctx, key, members...).Result(); err != nil {
 		return err
+	}
+	if expire != 0 {
+		if _, err := rc.rdb.Expire(ctx, key, expire).Result(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -220,4 +250,22 @@ func (rc *redisCache) SMembersWithCheck(ctx context.Context, key string) ([]stri
 func (rc *redisCache) ZRemRange(ctx context.Context, key string, score interface{}) error {
 	err := rc.rdb.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("%v", score)).Err()
 	return err
+}
+
+func (rc *redisCache) DedupAndSeq(ctx context.Context, keys []string, expire time.Duration) (int64, error) {
+	var v int64
+	var ok bool
+	if ret, err := dedupAndSeqScript.Run(ctx, rc.rdb, keys, int64(expire.Seconds())).Result(); err != nil {
+		return 0, err
+	} else if v, ok = ret.(int64); !ok {
+		return 0, ErrType
+	}
+	return v, nil
+
+}
+
+// UpdateUserConv 更新用户会话列表
+func (rc *redisCache) UpdateUserConv(ctx context.Context, key string, expire time.Duration, convIDs []string) error {
+	// 使用lua脚本：先对Set进行删除，再对Set进行添加
+	return nil
 }

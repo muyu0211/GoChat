@@ -81,12 +81,16 @@ func (c *chatService) Run(ctx context.Context) {
 
 // HandleChatMsg 处理上行聊天消息(用户发送过来的消息): 整个“上行”流程：去重 -> 取号 -> 落库 -> (给客户端)返回 ACK 数据。
 func (c *chatService) HandleChatMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
-	// TODO：进行消息参数校验
+	var conversationID string
 	senderID := client.UserID
 	// 1. 获取会话ID
-	conversationID := util.GetConversationID(senderID, req.ReceiverID)
+	if req.ConversationID != "" {
+		conversationID = req.ConversationID
+	} else {
+		conversationID = util.GetConversationID(req.SenderID, req.ReceiverID)
+	}
 	// 2. 幂等性检查 和 生成会话ID （redis事务实现）
-	isDup, seqID, err := c.seqFactory.CheckAndSetDedupWithSeq(ctx, conversationID, req.ClientMsgID, time.Hour)
+	isDup, seqID, err := c.seqFactory.CheckAndSetDedupWithSeq(ctx, senderID, conversationID, req.ClientMsgID, util.RedisDupExpire)
 	if err != nil {
 		zap.L().Error("消息去重失/取号失败", zap.Error(err))
 	}
@@ -98,8 +102,8 @@ func (c *chatService) HandleChatMsg(ctx context.Context, client *ws.Client, req 
 	createdAt := time.Now().UTC()
 	// 3. 消息落库（事务操作：message表新增记录 + conversation表更新相应字段）
 	err = c.tx.ExecTx(ctx, func(ctx context.Context) error {
-		// 创建message表记录
-		msg := dao.MessageModel{
+		// 创建 message 表记录
+		err := c.chatRepo.Create(ctx, &dao.MessageModel{
 			ConversationID: conversationID,
 			SeqID:          seqID,
 			SenderID:       senderID,
@@ -108,24 +112,13 @@ func (c *chatService) HandleChatMsg(ctx context.Context, client *ws.Client, req 
 			MsgType:        req.MsgType,
 			MsgStatus:      util.MsgStatusRead,
 			CreatedAt:      createdAt,
-		}
-		err := c.chatRepo.Create(ctx, &msg)
+		})
 
-		err = c.converRepo.UpdateSenderConversation(
-			ctx,
-			req.SenderID,   // Owner: A
-			req.ReceiverID, // Other: B
-			conversationID,
-			seqID,
-			createdAt)
+		// 更新 conversation 表 发送方记录
+		err = c.converRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, conversationID, seqID, createdAt)
 
-		err = c.converRepo.UpdateReceiverConversation(
-			ctx,
-			req.SenderID,   // Owner: A
-			req.ReceiverID, // Other: B
-			conversationID,
-			seqID,
-			createdAt)
+		// 更新 conversation 表 接收方记录
+		err = c.converRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, conversationID, seqID, createdAt)
 
 		if err != nil {
 			return err
@@ -137,7 +130,20 @@ func (c *chatService) HandleChatMsg(ctx context.Context, client *ws.Client, req 
 		return err
 	}
 
-	// 4. 异步调用下行推送服务（带重试+死信队列）
+	// 4. 异步更新redis中双方会话表缓存(Set存储)
+	util.SafeGo(func() {
+		senderConvKey := util.GetRedisConvKey(req.SenderID)
+		receiverConvKey := util.GetRedisConvKey(req.ReceiverID)
+		pipe := c.redisCache.TxPipeline()
+		pipe.SAdd(ctx, senderConvKey, req.ConversationID)
+		pipe.SAdd(ctx, receiverConvKey, req.ConversationID)
+		_, err = pipe.Exec(ctx)
+		if err != nil {
+			zap.L().Error("更新 redis 会话表缓存失败", zap.Error(err))
+		}
+	})
+
+	// 5. 异步调用下行推送服务（带重试+死信队列）
 	util.SafeGo(func() {
 		reply := &ws.ReplyMsg{
 			Cmd:            ws.CmdChat,
@@ -152,7 +158,7 @@ func (c *chatService) HandleChatMsg(ctx context.Context, client *ws.Client, req 
 		c.pushMsg(ctx, reply)
 	})
 
-	// 5. 异步回复ACK（发送方）（主流程不阻塞，失败后重试）
+	// 6. 异步回复ACK（发送方）（主流程不阻塞，失败后重试）
 	util.SafeGo(func() {
 		ack := &ws.ReplyMsg{
 			Cmd:            ws.CmdAck,
@@ -290,19 +296,20 @@ func (c *chatService) flushToDB() {
 		if end > len(updates) {
 			end = len(updates)
 		}
-		// 切分批次
-		batch := updates[i:end]
-		wg.Add(1)
-		go func(batch []*dto.UpdatesAck) {
-			defer wg.Done()
-			// TODO: 进行信号量操作
+		batch := updates[i:end] // 切分批次
+
+		if err := util.SubmitTaskWithContext(ctx, wg, func(ctx context.Context) {
 			c.processBatchAck(ctx, batch)
-		}(batch)
+		}); err != nil {
+			zap.L().Error("[Redis/MySQL] 批量处理失败", zap.Error(err))
+		}
 	}
 
+	// 等待所有批次处理完成
 	wg.Wait()
 }
 
+// processBatchAck 批量处理ack消息
 func (c *chatService) processBatchAck(ctx context.Context, batch []*dto.UpdatesAck) {
 	if len(batch) == 0 {
 		return
@@ -311,8 +318,8 @@ func (c *chatService) processBatchAck(ctx context.Context, batch []*dto.UpdatesA
 	pipe := c.redisCache.TxPipeline()
 
 	for _, update := range batch {
-		redisKey := fmt.Sprintf("%s:%d:%s", util.RedisBoxKey, update.UserID, update.ConversationID)
-		pipe.ZRemRangeByScore(ctx, redisKey, "-inf", strconv.FormatUint(update.LastAckID, 10))
+		offlineMsgBoxKey := util.GetRedisBoxKey(update.UserID, update.ConversationID)
+		pipe.ZRemRangeByScore(ctx, offlineMsgBoxKey, "-inf", strconv.FormatUint(update.LastAckID, 10))
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
 		zap.L().Error("[Redis] Pipeline删除消息失败", zap.Error(err))

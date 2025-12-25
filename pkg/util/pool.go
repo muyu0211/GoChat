@@ -6,9 +6,11 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/panjf2000/ants/v2"
+	"go.uber.org/zap"
 )
 
 var AntsPool *ants.Pool
@@ -38,14 +40,18 @@ func Submit(task func()) error {
 	return AntsPool.Submit(task)
 }
 
-func SubmitTaskWithContext(ctx context.Context, task func()) error {
-	wrappedTask := func() {
-		select {
-		case <-ctx.Done():
+func SubmitTaskWithContext(ctx context.Context, wg *sync.WaitGroup, task func(context.Context)) error {
+	wg.Add(1)
+	if err := AntsPool.Submit(func() {
+		defer wg.Done()
+		if ctx.Err() != nil {
 			return
-		default:
-			task()
 		}
+		task(ctx)
+	}); err != nil {
+		wg.Done()
+		zap.L().Error("[AntsPool] 提交任务失败", zap.Error(err))
+		return err
 	}
-	return AntsPool.Submit(wrappedTask)
+	return nil
 }
