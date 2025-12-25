@@ -11,13 +11,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html/template"
+	"strconv"
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
-	"html/template"
-	"strconv"
-	"time"
 )
 
 type IUserService interface {
@@ -300,12 +301,11 @@ func (us *userService) Register(ctx context.Context, req *dto.RegisterRequest) e
 	}
 	err = us.userRepo.Create(ctx, user)
 	if err != nil {
-		zap.L().Warn("用户创建失败", zap.Error(err))
+		zap.L().Warn("用户创建失败", zap.Error(err), zap.Bool("error:", errors.Is(err, gorm.ErrDuplicatedKey)))
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			return ErrUserAlreadyExist
-		} else {
-			return ErrServerNotAvailable
 		}
+		return ErrServerNotAvailable
 	}
 
 	return nil

@@ -8,12 +8,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"log"
+	"time"
+
 	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
-	"log"
-	"strconv"
-	"time"
 )
 
 type IPushService interface {
@@ -40,7 +39,7 @@ func NewPushService(rc cache.ICacheRepository, us IUserService) *PushService {
 	}
 }
 
-// Push 推送服务 【对外接口】
+// Push 推送服务: 将消息推送给接收方
 func (ps *PushService) Push(ctx context.Context, msg *ws.ReplyMsg) error {
 	receiverID := msg.ReceiverID
 	// 1. 查询接收方在哪一台服务器
@@ -92,13 +91,13 @@ func (ps *PushService) saveOffline(ctx context.Context, msg *ws.ReplyMsg) error 
 	defer cancel()
 
 	// key设计： fmt.Sprintf("im:box:%s:%s", receiverID, msg.ConversationID)
-	key := fmt.Sprintf("%s:%s:%s", util.RedisBoxKey, strconv.FormatUint(msg.ReceiverID, 10), msg.ConversationID)
+	offlineMsgBoxKey := util.GetRedisBoxKey(msg.ReceiverID, msg.ConversationID)
 	msgByte, err := msg.Serialize()
 	if err != nil {
 		zap.L().Error("序列化消息失败", zap.Error(err))
 		return ErrMarshalJSON
 	}
-	if err = ps.redisCache.ZAdd(zAddCtx, key, float64(msg.SeqID), msgByte, util.RedisOfflineExpire); err != nil {
+	if err = ps.redisCache.ZAdd(zAddCtx, offlineMsgBoxKey, float64(msg.SeqID), msgByte, util.RedisOfflineExpire); err != nil {
 		zap.L().Error("保存离线消息出错：", zap.Error(err))
 		return ErrServerNotAvailable
 	}
@@ -120,7 +119,7 @@ func (ps *PushService) Publish(ctx context.Context, receiverID uint64, serveID s
 	}
 
 	// 进行消息发布，带有重试机制
-	if err = ps.publishWithRetry(ctx, util.PubSubChannel, payLoadBytes); err != nil {
+	if err = ps.publishWithRetry(ctx, util.GetRedisPubSubChannel(), payLoadBytes); err != nil {
 		return ErrServerNotAvailable
 	}
 	return nil

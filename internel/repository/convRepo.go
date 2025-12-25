@@ -5,7 +5,7 @@ import (
 	"GoChat/internel/model/dto"
 	"GoChat/pkg/util"
 	"context"
-	"log"
+	"errors"
 	"strings"
 	"time"
 
@@ -15,49 +15,50 @@ import (
 
 type IConversationRepo interface {
 	IBaseRepository[dao.Conversation]
-	GetByUserID(ctx context.Context, userID uint64) ([]dao.Conversation, error)
-	GetByConversationID(ctx context.Context, conversationID string) (*dao.Conversation, error)
-	GetByConversationIDs(ctx context.Context, conversationIDs []string) ([]dao.Conversation, error)
+	GetConvByUserID(ctx context.Context, userID uint64) ([]dao.Conversation, error)
+	GetConvByConvID(ctx context.Context, conversationID string) (*dao.Conversation, error)
+	GetConvByUserIDConvID(ctx context.Context, userID uint64, conversationIDs []string) ([]dao.Conversation, error)
+	GetLastSeqID(ctx context.Context, userID uint64, conversationID string) (uint64, error)
 	UpdateLastAck(ctx context.Context, userID uint64, conversationID string, lastAckID uint64) error
 	BulkUpdateLastAck(ctx context.Context, updates []*dto.UpdatesAck) error
 	UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, createdAt time.Time) error
 	UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, createdAt time.Time) error
 }
 
-type conversationRepo struct {
+type convRepo struct {
 	db *gorm.DB
 }
 
 func NewConversationRepo(db *gorm.DB) IConversationRepo {
-	return &conversationRepo{
+	return &convRepo{
 		db: db,
 	}
 }
 
-func (r *conversationRepo) getTx(ctx context.Context) *gorm.DB {
+func (r *convRepo) getTx(ctx context.Context) *gorm.DB {
 	if tx := util.GetTx(ctx); tx != nil {
-		log.Println("获取到事务句柄")
 		return tx
 	}
 	return r.db
 }
-func (r *conversationRepo) GetByID(ctx context.Context, id uint64) (*dao.Conversation, error) {
+func (r *convRepo) GetByID(ctx context.Context, id uint64) (*dao.Conversation, error) {
 	return nil, nil
 }
-func (r *conversationRepo) Create(ctx context.Context, entity *dao.Conversation) error {
+func (r *convRepo) Create(ctx context.Context, entity *dao.Conversation) error {
 	return nil
 }
-func (r *conversationRepo) Delete(ctx context.Context, entity *dao.Conversation) error {
+func (r *convRepo) Delete(ctx context.Context, entity *dao.Conversation) error {
 	return nil
 }
-func (r *conversationRepo) Update(ctx context.Context, entity *dao.Conversation) error {
+func (r *convRepo) Update(ctx context.Context, entity *dao.Conversation) error {
 	return nil
 }
-func (r *conversationRepo) List(ctx context.Context, params QueryParams) ([]dao.Conversation, int64, error) {
+func (r *convRepo) List(ctx context.Context, params QueryParams) ([]dao.Conversation, int64, error) {
 	return nil, 0, nil
 }
 
-func (r *conversationRepo) GetByUserID(ctx context.Context, userID uint64) ([]dao.Conversation, error) {
+// GetConvByUserID 根据UserID获取该用户的所有会话
+func (r *convRepo) GetConvByUserID(ctx context.Context, userID uint64) ([]dao.Conversation, error) {
 	db := r.getTx(ctx)
 	var conversations []dao.Conversation
 	result := db.Model(&dao.Conversation{}).WithContext(ctx).
@@ -65,12 +66,15 @@ func (r *conversationRepo) GetByUserID(ctx context.Context, userID uint64) ([]da
 		Find(&conversations)
 
 	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
 		return nil, result.Error
 	}
 	return conversations, nil
 }
 
-func (r *conversationRepo) GetByConversationID(ctx context.Context, conversationID string) (*dao.Conversation, error) {
+func (r *convRepo) GetConvByConvID(ctx context.Context, conversationID string) (*dao.Conversation, error) {
 	db := r.getTx(ctx)
 	var conversation dao.Conversation
 	result := db.Model(&dao.Conversation{}).WithContext(ctx).
@@ -82,12 +86,12 @@ func (r *conversationRepo) GetByConversationID(ctx context.Context, conversation
 	return nil, nil
 }
 
-// GetByConversationIDs 批量获取会话
-func (r *conversationRepo) GetByConversationIDs(ctx context.Context, conversationIDs []string) ([]dao.Conversation, error) {
+// GetConvByUserIDConvID 根据UserID和ConvID批量获取会话
+func (r *convRepo) GetConvByUserIDConvID(ctx context.Context, userID uint64, conversationIDs []string) ([]dao.Conversation, error) {
 	db := r.getTx(ctx)
 	var conversations []dao.Conversation
 	result := db.Model(&dao.Conversation{}).WithContext(ctx).
-		Where("conversation_id in ?", conversationIDs).
+		Where("user_id = ? and conversation_id in ?", userID, conversationIDs).
 		Find(&conversations)
 
 	if result.Error != nil {
@@ -96,7 +100,19 @@ func (r *conversationRepo) GetByConversationIDs(ctx context.Context, conversatio
 	return conversations, nil
 }
 
-func (r *conversationRepo) UpdateLastAck(ctx context.Context, userID uint64, conversationID string, lastAckID uint64) error {
+func (r *convRepo) GetLastSeqID(ctx context.Context, userID uint64, conversationID string) (uint64, error) {
+	db := r.getTx(ctx)
+	var conversation dao.Conversation
+	result := db.Model(&dao.Conversation{}).WithContext(ctx).
+		Select("last_seq_id").
+		Where("owner_id = ? and conversation_id = ?", userID, conversationID).Find(&conversation)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return conversation.LastSeqID, nil
+}
+
+func (r *convRepo) UpdateLastAck(ctx context.Context, userID uint64, conversationID string, lastAckID uint64) error {
 	db := r.getTx(ctx)
 	result := db.Model(&dao.Conversation{}).WithContext(ctx).
 		Where("owner_id = ? and conversation_id = ?", userID, conversationID).
@@ -107,7 +123,7 @@ func (r *conversationRepo) UpdateLastAck(ctx context.Context, userID uint64, con
 	return result.Error
 }
 
-func (r *conversationRepo) BulkUpdateLastAck(ctx context.Context, updates []*dto.UpdatesAck) error {
+func (r *convRepo) BulkUpdateLastAck(ctx context.Context, updates []*dto.UpdatesAck) error {
 	db := r.getTx(ctx)
 	// 拼接sql
 
@@ -131,21 +147,20 @@ func (r *conversationRepo) BulkUpdateLastAck(ctx context.Context, updates []*dto
 	if err := db.Model(&dao.Conversation{}).WithContext(ctx).Exec(sql.String(), args...).Error; err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
 // UpdateSenderConversation 更新发送者会话
-func (r *conversationRepo) UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, createdAt time.Time) error {
+func (r *convRepo) UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
 	db := r.getTx(ctx)
 	return db.Model(&dao.Conversation{}).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "owner_id"}, {Name: "conversation_id"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"other_user_id": receiverID,
-			"updated_at":    time.Now(),
-			"last_seq_id":   seqID,
-			"last_ack_id":   seqID,
-			"unread_count":  0,
+			"updated_at":   updatedAt,
+			"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
+			"last_ack_id":  seqID,
+			"unread_count": 0,
 		}), // 插入冲突时则进行更新操作
 	}).Create(&dao.Conversation{
 		OwnerID:        senderID,
@@ -154,20 +169,20 @@ func (r *conversationRepo) UpdateSenderConversation(ctx context.Context, senderI
 		LastSeqID:      seqID,
 		LastAckID:      seqID,
 		UnreadCount:    0,
+		UpdatedAt:      updatedAt,
 	}).Error
 }
 
 // UpdateReceiverConversation 更新接收者会话
-func (r *conversationRepo) UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, createdAt time.Time) error {
+func (r *convRepo) UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
 	db := r.getTx(ctx)
 	return db.Model(&dao.Conversation{}).WithContext(ctx).Clauses(
 		clause.OnConflict{
 			Columns: []clause.Column{{Name: "owner_id"}, {Name: "conversation_id"}},
 			DoUpdates: clause.Assignments(map[string]interface{}{
-				"other_user_id": senderID,
-				"updated_at":    time.Now(),
-				"last_seq_id":   seqID,
-				"unread_count":  gorm.Expr("unread_count + ?", 1),
+				"updated_at":   updatedAt,
+				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id , ?)", seqID),
+				"unread_count": gorm.Expr("unread_count + ?", 1),
 			}),
 		}).Create(&dao.Conversation{
 		OwnerID:        receiverID,
@@ -176,6 +191,6 @@ func (r *conversationRepo) UpdateReceiverConversation(ctx context.Context, sende
 		LastSeqID:      seqID,
 		LastAckID:      0,
 		UnreadCount:    1,
-		UpdatedAt:      createdAt,
+		UpdatedAt:      updatedAt,
 	}).Error
 }

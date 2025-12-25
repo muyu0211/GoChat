@@ -22,9 +22,10 @@ func RegisterChatRouter(r *gin.Engine) {
 
 	userRepo := repository.NewUserRepo(dbs.Master)
 	chatRepo := repository.NewChatRepo(dbs.Master)
-	conversationRepo := repository.NewConversationRepo(dbs.Master)
+	convRepo := repository.NewConversationRepo(dbs.Master)
 	chatCache := cache.NewRedisCache(rdb)
-	seqFactory := service.NewSeqFactory(chatCache)
+
+	seqFactory := service.NewSeqFactory(chatCache, convRepo)
 	txManager := service.NewTxManager(dbs.Master)
 
 	// 进行kafka生产者/消费者依赖注入
@@ -38,51 +39,29 @@ func RegisterChatRouter(r *gin.Engine) {
 	}
 	userService := service.NewUserService(userRepo, chatCache, txManager)
 	pushService := service.NewPushService(chatCache, userService)
-	chatService := service.NewChatService(seqFactory, pushService, chatRepo, conversationRepo, txManager, chatCache, ackProducer, ackConsumer)
-	syncService := service.NewSyncService(chatCache, chatRepo, conversationRepo)
+	chatService := service.NewChatService(seqFactory, pushService, chatRepo, convRepo, txManager, chatCache, ackProducer, ackConsumer)
+	syncService := service.NewSyncService(chatCache, chatRepo, convRepo)
 
-	chatHandler := handler.NewChatHandler(chatService, userService, syncService)
+	chatHandler := handler.NewChatHandler(chatService, userService, syncService, pushService)
 
 	{
-		r.GET("/getAllClient", chatHandler.GetAllClient)
+		r.GET("/get_all_client", chatHandler.GetAllClient)
 	}
 
 	{
 		chatApi := r.Group("/chat")
 		chatApi.Use(middleware.JWTMiddleware())
 		chatApi.GET("/ws", chatHandler.Connect)
-		chatApi.GET("/sessions", chatHandler.SyncSession)
+		chatApi.GET("/convs", chatHandler.GetUserConverse)
+		chatApi.GET("/sync", chatHandler.SyncConverse)
 	}
 
 	// 启动redis订阅
 	util.SafeGo(func() {
-		pushService.Subscribe(context.Background(), util.PubSubChannel)
+		pushService.Subscribe(context.Background(), util.GetRedisPubSubChannel())
 	})
 	// 启动消费者监听
 	util.SafeGo(func() {
 		chatService.Run(context.Background())
 	})
-}
-
-// buildProdConsOptions 根据业务生成生产者配置参数
-func buildProdConsOptions(cfg config.KafkaConfig, businessCfg config.BusinessConfig) (mq.ProducerOptions, mq.ConsumerOptions) {
-	brokers := cfg.Brokers
-	producerOpts := mq.ProducerOptions{
-		Brokers:      brokers,
-		Topic:        businessCfg.Topic,
-		BatchSize:    businessCfg.Producer.BatchSize,
-		BatchTimeout: businessCfg.Producer.BatchTimeout,
-		WriteTimeout: businessCfg.Producer.WriteTimeout,
-		Compression:  businessCfg.Producer.Compression,
-	}
-	consumerOpts := mq.ConsumerOptions{
-		Brokers:        brokers,
-		Topic:          businessCfg.Topic,
-		GroupID:        businessCfg.GroupID,
-		MinBytes:       businessCfg.Consumer.MinBytes,
-		MaxBytes:       businessCfg.Consumer.MaxBytes,
-		CommitInterval: businessCfg.Consumer.CommitInterval,
-		StartOffset:    businessCfg.Consumer.StartOffset,
-	}
-	return producerOpts, consumerOpts
 }

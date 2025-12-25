@@ -6,9 +6,14 @@ package middleware
 import (
 	"GoChat/pkg/auth"
 	"GoChat/pkg/util"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
-	"net/http"
+)
+
+const (
+	MsgTokenExpired = "登录过期"
 )
 
 func JWTMiddleware() gin.HandlerFunc {
@@ -46,7 +51,7 @@ func JWTMiddleware() gin.HandlerFunc {
 				zap.String("token", tokenStr),
 				zap.Error(err))
 
-			c.JSON(http.StatusUnauthorized, util.NewResMsg("0", "服务器繁忙, 请稍后重试", nil))
+			c.JSON(http.StatusUnauthorized, util.NewResMsg("0", MsgTokenExpired, nil))
 			c.Abort()
 			return
 		}

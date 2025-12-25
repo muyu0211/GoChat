@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"GoChat/pkg/util"
+	"log"
 	"strconv"
 	"sync"
 )
@@ -84,6 +85,7 @@ func (m *ClientManager) Unregister(userID uint64) {
 		}
 		delete(bucket.Clients, userID)
 	}
+	log.Printf("用户：%d 下线", userID)
 }
 
 // GetClient 获取连接

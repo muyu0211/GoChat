@@ -5,10 +5,11 @@ import (
 	"GoChat/internel/model/dao"
 	"GoChat/pkg/logger"
 	"fmt"
+	"time"
+
 	"go.uber.org/zap"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"time"
 )
 
 type MySQLConfig struct {
@@ -61,9 +62,8 @@ func initMySQL(sqlCfg *config.MySQLConfig) (*DBS, error) {
 	zap.L().Info("数据库连接成功.")
 
 	// 进行表迁移
-	//dao.MigrateUserBasic(MasterDB)
-	//dao.MigrateBoard(MasterDB)
-	//dao.MigrateMessage(MasterDB)
+	dao.MigrateUserBasic(MasterDB)
+	dao.MigrateMessage(MasterDB)
 	dao.MigrateConversation(MasterDB)
 
 	return &DBS{

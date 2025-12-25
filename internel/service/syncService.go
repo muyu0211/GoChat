@@ -8,10 +8,9 @@ import (
 	ws "GoChat/internel/websocket"
 	"GoChat/pkg/util"
 	"context"
-	"fmt"
-	"go.uber.org/zap"
 	"log"
-	"strconv"
+
+	"go.uber.org/zap"
 )
 
 /**
@@ -19,22 +18,22 @@ import (
  */
 
 type ISyncService interface {
-	Sync(ctx context.Context, userID uint64, seqID uint64)
-	SyncSession(ctx context.Context, userID uint64)
-	syncConversation(ctx context.Context, conversationID string, seqID uint64, limit int64) (*[]ws.ReplyMsg, bool, error)
+	Sync(ctx context.Context, userID uint64)
+	GetSessions(ctx context.Context, userID uint64) (*dto.UserSession, error)
+	SyncConverse(ctx context.Context, userID uint64, conversationID string, seqID uint64, limit int64) ([]ws.ReplyMsg, bool, error)
 }
 
 type SyncService struct {
-	redisCache       cache.ICacheRepository
-	chatRepo         repository.IChatRepo
-	conversationRepo repository.IConversationRepo
+	redisCache cache.ICacheRepository
+	chatRepo   repository.IChatRepo
+	convRepo   repository.IConversationRepo
 }
 
 func NewSyncService(rc cache.ICacheRepository, cr repository.IChatRepo, ccr repository.IConversationRepo) *SyncService {
 	return &SyncService{
-		redisCache:       rc,
-		chatRepo:         cr,
-		conversationRepo: ccr,
+		redisCache: rc,
+		chatRepo:   cr,
+		convRepo:   ccr,
 	}
 }
 
@@ -48,10 +47,9 @@ func (ss *SyncService) Sync(ctx context.Context, userID uint64) {
 
 // GetSessions 获取用户会话列表
 func (ss *SyncService) GetSessions(ctx context.Context, userID uint64) (*dto.UserSession, error) {
-	// 1. 获取用户会话列表先查Redis
-	key := fmt.Sprintf("%s:%s", util.RedisSessionKey, strconv.FormatUint(userID, 10))
-	// 获取当前用户的会话ID
-	conversationIDs, exist, redisErr := ss.redisCache.SMembersWithCheck(ctx, key)
+	// 1. 查询redis中缓存的当前用户的会话列表
+	convKey := util.GetRedisConvKey(userID)
+	conversationIDs, exist, redisErr := ss.redisCache.SMembersWithCheck(ctx, convKey)
 
 	if redisErr != nil {
 		zap.L().Warn("查询Redis缓存出错，降级到数据库查询",
@@ -61,39 +59,50 @@ func (ss *SyncService) GetSessions(ctx context.Context, userID uint64) (*dto.Use
 
 	var conversations []dao.Conversation
 	var sqlErr error
-	if exist && len(conversationIDs) > 0 {
-		// 缓存命中
-		log.Printf("缓存命中")
-		conversations, sqlErr = ss.conversationRepo.GetByConversationIDs(ctx, conversationIDs)
-		if sqlErr != nil {
-			zap.L().Error("查找数据库出错:", zap.Error(sqlErr))
-			// 降级查询
-			conversations, sqlErr = ss.conversationRepo.GetByUserID(ctx, userID)
+	var shouldDB = false
+
+	// 是否进行数据库查询 convIDs
+	if !exist || redisErr != nil || len(conversationIDs) == 0 {
+		shouldDB = true
+	}
+
+	if !shouldDB {
+		conversations, sqlErr = ss.convRepo.GetConvByUserIDConvID(ctx, userID, conversationIDs)
+		if sqlErr != nil || len(conversations) != len(conversationIDs) {
+			shouldDB = true
+			zap.L().Warn("缓存数据不完整，回退到数据库查询",
+				zap.Int("cachedCount", len(conversationIDs)),
+				zap.Int("dbCount", len(conversations)),
+				zap.Error(sqlErr))
 		}
-	} else {
-		// 缓存未命中或为空，直接从数据库查询
-		log.Printf("缓存未命中")
-		conversations, sqlErr = ss.conversationRepo.GetByUserID(ctx, userID)
 	}
 
-	// 统一的数据库错误处理
-	if sqlErr != nil {
-		zap.L().Error("查询用户会话失败",
-			zap.Error(sqlErr),
-			zap.Uint64("userID", userID))
-		return nil, ErrServerNotAvailable
+	if shouldDB {
+		conversations, sqlErr = ss.convRepo.GetConvByUserID(ctx, userID)
+		if sqlErr != nil {
+			zap.L().Error("查询用户会话失败",
+				zap.Error(sqlErr),
+				zap.Uint64("userID", userID))
+			return nil, ErrServerNotAvailable
+		}
 	}
 
-	// 进行缓存更新
-	if !exist || redisErr != nil {
-		util.SafeGo(func() {
-			ctxAsync := context.Background()
-			if err := ss.updateSessionCache(ctxAsync, userID, conversations); err != nil {
-				zap.L().Warn("异步更新会话缓存失败",
-					zap.Error(err),
-					zap.Uint64("userID", userID))
-			}
-		})
+	// 异步进行缓存更新（无论是否命中都应该更新缓存）
+	util.SafeGo(func() {
+		ctxAsync := context.Background()
+		if err := ss.updateConvCache(ctxAsync, userID, conversations); err != nil {
+			zap.L().Warn("异步更新会话缓存失败",
+				zap.Error(err),
+				zap.Uint64("userID", userID))
+		}
+	})
+
+	// 处理空数据
+	if conversations == nil {
+		return &dto.UserSession{
+			UserID: userID,
+			Convs:  make([]dto.Conversations, 0),
+		}, nil
 	}
 
 	// 构建返回数据
@@ -112,54 +121,82 @@ func (ss *SyncService) GetSessions(ctx context.Context, userID uint64) (*dto.Use
 	return userSessions, nil
 }
 
-func (ss *SyncService) updateSessionCache(ctx context.Context, userID uint64, conversations []dao.Conversation) error {
-	log.Println("TODO: 更新会话缓存数据")
+// updateConvCache 更新会话缓存数据
+func (ss *SyncService) updateConvCache(ctx context.Context, userID uint64, conversations []dao.Conversation) error {
+	if conversations == nil || len(conversations) == 0 {
+		return nil
+	}
+	convKey := util.GetRedisConvKey(userID)
+	// 用户的会话列表由Set进行存储，convKey=key + userID
+	convIDs := make([]string, 0, len(conversations))
+	for _, conv := range conversations {
+		convIDs = append(convIDs, conv.ConversationID)
+	}
+	if err := ss.redisCache.UpdateUserConv(ctx, convKey, 0, convIDs); err != nil {
+		zap.L().Error("更新用户会话缓存失败",
+			zap.Error(err),
+		)
+		return err
+	}
 	return nil
 }
 
-func (ss *SyncService) syncConversation(ctx context.Context, conversationID string, seqID uint64, limit int64) (*[]ws.ReplyMsg, bool, error) {
-	if limit < 0 {
-		limit = 50
+// SyncConverse 同步会话内的消息
+func (ss *SyncService) SyncConverse(ctx context.Context, userID uint64, conversationID string, seqID uint64, limit int64) ([]ws.ReplyMsg, bool, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 200
 	}
 
-	// 1. 先从redis查找
-	msgBytes, err := ss.redisCache.ZRange(ctx, conversationID, seqID, limit)
-	if err == nil && len(msgBytes) > 0 {
-		msgs := make([]ws.ReplyMsg, len(msgBytes))
-		// 对消息进行反序列化
-		for i, msgByte := range msgBytes {
-			if err = msgs[i].Deserialize(msgByte); err != nil {
-				msgs[i] = ws.ReplyMsg{Cmd: ws.CmdChat}
-				continue
+	// 初始化返回切片（避免返回 nil）
+	replyMsgs := make([]ws.ReplyMsg, 0)
+
+	// 1. 查找redis中是否缓存了离线消息
+	offlineMsgBoxKey := util.GetRedisBoxKey(userID, conversationID)
+	msgBytes, exist, err := ss.redisCache.ZRange(ctx, offlineMsgBoxKey, seqID+1, limit)
+
+	var hitCache = true
+	if err != nil || !exist || len(msgBytes) == 0 {
+		hitCache = false
+	}
+
+	if hitCache { // 命中缓存
+		cacheMsgs := make([]ws.ReplyMsg, 0, len(msgBytes))
+		for _, msgByte := range msgBytes {
+			var msg ws.ReplyMsg
+			if err = msg.Deserialize(msgByte); err == nil {
+				cacheMsgs = append(cacheMsgs, msg)
 			}
 		}
-		// 进行消息连续性判断
-		if msgs[0].SeqID == seqID+1 {
-			hasMore := int64(len(msgs)) == limit
-			return &msgs, hasMore, nil
+		if len(cacheMsgs) > 0 {
+			// 完美命中缓存, 直接返回数据
+			if cacheMsgs[0].SeqID == seqID+1 {
+				return cacheMsgs, int64(len(cacheMsgs)) == limit, nil
+			}
 		}
+		hitCache = false
 	}
 
 	// 2. 缓存未命中则查库
-	msgs, num, err := ss.chatRepo.GetByConversationIDAfterSeqID(ctx, conversationID, seqID, limit)
-	if err != nil {
-		zap.L().Error("查找数据库出错:", zap.Error(err))
-		return nil, false, err
-	}
-	if num == 0 {
-		return nil, false, nil
-	}
-	replyMsgs := make([]ws.ReplyMsg, num)
-	for i, msg := range msgs {
-		replyMsgs[i] = ws.ReplyMsg{
-			Cmd:            ws.CmdChat,
-			ConversationID: msg.ConversationID,
-			Content:        msg.Content,
-			SenderID:       msg.SenderID,
-			ReceiverID:     msg.ReceiverID,
-			SeqID:          msg.SeqID,
-			TimeStamp:      msg.CreatedAt.UnixMilli(),
+	if !hitCache {
+		dbMsgs, err := ss.chatRepo.GetMsgsByLastSeqID(ctx, userID, conversationID, seqID, limit)
+		if err != nil {
+			zap.L().Error("查找数据库出错:", zap.Error(err))
+			return nil, false, err
+		}
+
+		for _, msg := range dbMsgs {
+			replyMsgs = append(replyMsgs, ws.ReplyMsg{
+				Cmd:            ws.CmdChat,
+				ConversationID: msg.ConversationID,
+				Content:        msg.Content,
+				SenderID:       msg.SenderID,
+				ReceiverID:     msg.ReceiverID,
+				SeqID:          msg.SeqID,
+				TimeStamp:      msg.CreatedAt.UnixMilli(),
+			})
 		}
 	}
-	return &replyMsgs, num == limit, nil
+	log.Printf("len replyMsgs: %d", len(replyMsgs))
+
+	return replyMsgs, int64(len(replyMsgs)) == limit, nil
 }

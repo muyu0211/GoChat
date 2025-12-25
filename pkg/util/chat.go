@@ -1,28 +1,5 @@
 package util
 
-import "time"
-
-const (
-	// PubSubChannel Redis发布订阅频道（统一配置，避免硬编码）
-	PubSubChannel      = "im:push:cross_server"
-	RedisDupKey        = "im:dup_key"
-	RedisBoxKey        = "im:box"
-	RedisSessionKey    = "im:session"
-	RedisDupExpire     = 5 * time.Minute
-	RedisOfflineExpire = 7 * 24 * time.Hour
-	RedisSeqKey        = "im:seq"
-	// RedisPublishTimeout Redis发布操作超时时间（避免阻塞）
-	RedisPublishTimeout = 3 * time.Second
-	// RedisPublishRetryTimes 发布失败重试次数（幂等场景下适用）
-	RedisPublishRetryTimes = 3
-	// RedisPublishRetryInterval 重试间隔
-	RedisPublishRetryInterval = 100 * time.Millisecond
-
-	PushLocalTimeout = 3 * time.Second
-
-	RedisZAddTimeout = 500 * time.Millisecond
-)
-
 // 定义消息类型枚举 (避免魔法数字)
 const (
 	_            = iota
