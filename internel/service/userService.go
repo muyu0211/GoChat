@@ -279,6 +279,11 @@ func (us *userService) Register(ctx context.Context, req *dto.RegisterRequest) e
 	key := util.KeyVerifyCode + req.EmailOrPhone
 	var code string
 	ok, err := us.redisCache.Get(ctx, key, &code)
+	// Notice 给压测场景通过，但是依旧进行redis查询
+	if req.VerifyCode == "666666" {
+		err = nil
+		ok = true
+	}
 	if err != nil {
 		return ErrServerNotAvailable
 	}

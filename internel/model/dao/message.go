@@ -32,5 +32,4 @@ func MigrateMessage(db *gorm.DB) {
 	if err != nil {
 		zap.L().Warn("Message Table Create Warn:", zap.Error(err))
 	}
-	zap.L().Info("Message Table Migrate Success")
 }

@@ -18,6 +18,7 @@ type Conversation struct {
 	UnreadCount    uint64 `gorm:"default:0;comment:未读数"`
 	IsPinned       bool   `gorm:"default:false;comment:是否置顶"`
 	IsMuted        bool   `gorm:"default:false;comment:是否免打扰"`
+	IsDeleted      bool   `gorm:"default:false;comment:是否已经删除好友（拉黑）"`
 	UpdatedAt      time.Time
 	DeletedAt      gorm.DeletedAt
 }
@@ -31,5 +32,4 @@ func MigrateConversation(db *gorm.DB) {
 	if err != nil {
 		zap.L().Warn("Conversation Table Create Warn:", zap.Error(err))
 	}
-	zap.L().Info("Conversation Table Migrate Success")
 }

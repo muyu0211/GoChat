@@ -29,7 +29,7 @@ type convRepo struct {
 	db *gorm.DB
 }
 
-func NewConversationRepo(db *gorm.DB) IConversationRepo {
+func NewConvRepo(db *gorm.DB) IConversationRepo {
 	return &convRepo{
 		db: db,
 	}

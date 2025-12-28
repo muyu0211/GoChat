@@ -4,10 +4,7 @@ import (
 	"GoChat/config"
 	"context"
 	"log"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 
 	"github.com/panjf2000/ants/v2"
 	"go.uber.org/zap"
@@ -23,17 +20,23 @@ func StartAntsPool(cfg *config.Config) {
 		panic(err)
 	}
 	// 优雅关闭协程池：监听程序退出信号（如Ctrl+C、kill命令）
-	go func() {
-		// 监听系统退出信号
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-		<-sigChan
+	//go func() {
+	//	// 监听系统退出信号
+	//	sigChan := make(chan os.Signal, 1)
+	//	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	//	<-sigChan
+	//
+	//	// 关闭协程池，等待所有任务执行完成
+	//	log.Println("开始关闭ants协程池...")
+	//	AntsPool.Release()
+	//	log.Println("ants协程池已关闭")
+	//}()
+}
 
-		// 关闭协程池，等待所有任务执行完成
-		log.Println("开始关闭ants协程池...")
-		AntsPool.Release()
-		log.Println("ants协程池已关闭")
-	}()
+func ClosePool() {
+	log.Println("开始关闭 ants 协程池...")
+	AntsPool.Release()
+	log.Println("ants 协程池已关闭")
 }
 
 func Submit(task func()) error {

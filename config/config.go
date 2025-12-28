@@ -75,7 +75,7 @@ var Cfg *Config
 func LoadConfig() *Config {
 	// 使用viper读取配置文件，进行项目初始化
 	// ./config.config.yml
-	viper.SetConfigFile("D:\\Kits\\GoCode\\GoChat\\config\\config.yml")
+	viper.SetConfigFile("./config/config.yml")
 	if err := viper.ReadInConfig(); err != nil {
 		panic(fmt.Errorf("fatal error config file: %w", err))
 	}

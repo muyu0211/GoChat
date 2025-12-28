@@ -1,9 +1,10 @@
 package dao
 
 import (
+	"time"
+
 	"go.uber.org/zap"
 	"gorm.io/gorm"
-	"time"
 )
 
 type UserState byte
@@ -17,7 +18,7 @@ const (
 
 type UserBasicModel struct {
 	ID             uint64         `gorm:"primaryKey autoIncrement;comment:用户ID（自增）"`
-	Email          *string        `gorm:"type:varchar(20);not null;uniqueIndex:idx_email;comment:邮箱号（唯一，脱敏存储）"`
+	Email          *string        `gorm:"type:varchar(50);not null;uniqueIndex:idx_email;comment:邮箱号（唯一，脱敏存储）"`
 	Phone          *string        `gorm:"type:varchar(20);uniqueIndex:idx_phone;comment:手机号（唯一，脱敏存储）"`
 	PassWordHashed string         `gorm:"type:varchar(100);not null;comment:密码（bcrypt加密）"`
 	Nickname       string         `gorm:"type:varchar(50);default:'';comment:昵称"`
@@ -39,5 +40,4 @@ func MigrateUserBasic(db *gorm.DB) {
 	if err != nil {
 		zap.L().Warn("User Table Create Warn:", zap.Error(err))
 	}
-	zap.L().Info("User Table Migrate Success")
 }

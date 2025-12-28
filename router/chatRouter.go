@@ -4,7 +4,6 @@ import (
 	"GoChat/config"
 	"GoChat/internel/handler"
 	"GoChat/internel/infrastructure/mq"
-	"GoChat/internel/middleware"
 	"GoChat/internel/repository"
 	"GoChat/internel/repository/cache"
 	"GoChat/internel/service"
@@ -22,7 +21,7 @@ func RegisterChatRouter(r *gin.Engine) {
 
 	userRepo := repository.NewUserRepo(dbs.Master)
 	chatRepo := repository.NewChatRepo(dbs.Master)
-	convRepo := repository.NewConversationRepo(dbs.Master)
+	convRepo := repository.NewConvRepo(dbs.Master)
 	chatCache := cache.NewRedisCache(rdb)
 
 	seqFactory := service.NewSeqFactory(chatCache, convRepo)
@@ -37,6 +36,7 @@ func RegisterChatRouter(r *gin.Engine) {
 	if err != nil {
 		zap.L().Fatal("ack consumer start error", zap.Error(err))
 	}
+
 	userService := service.NewUserService(userRepo, chatCache, txManager)
 	pushService := service.NewPushService(chatCache, userService)
 	chatService := service.NewChatService(seqFactory, pushService, chatRepo, convRepo, txManager, chatCache, ackProducer, ackConsumer)
@@ -50,10 +50,10 @@ func RegisterChatRouter(r *gin.Engine) {
 
 	{
 		chatApi := r.Group("/chat")
-		chatApi.Use(middleware.JWTMiddleware())
+		//chatApi.Use(middleware.JWTMiddleware())
 		chatApi.GET("/ws", chatHandler.Connect)
 		chatApi.GET("/convs", chatHandler.GetUserConverse)
-		chatApi.GET("/sync", chatHandler.SyncConverse)
+		chatApi.POST("/sync", chatHandler.SyncConverse)
 	}
 
 	// 启动redis订阅

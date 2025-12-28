@@ -12,6 +12,11 @@ type ConverseMessage struct {
 	LastAckID      uint64 `json:"last_ack_id"`
 }
 
+type UserReq struct {
+	UserID uint64 `json:"user_id" form:"user_id"`
+	Email  string `json:"email" form:"email" binding:"omitempty"`
+}
+
 type GetMsgHistoryReq struct {
 	UserID         uint64 `json:"user_id" form:"user_id" binding:"omitempty"`
 	ConversationID string `json:"conversation_id" form:"conversation_id"`

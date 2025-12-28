@@ -6,10 +6,11 @@ import (
 	"GoChat/pkg/util"
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 	"net/http"
 	"strings"
+
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 type UserHandler struct {
@@ -130,11 +131,9 @@ func (uh *UserHandler) Register(ctx *gin.Context) {
 		if errors.Is(err, service.ErrServerNotAvailable) {
 			ctx.JSON(http.StatusInternalServerError, util.NewResMsg("0", "服务器繁忙，请稍后重试", nil))
 			return
-		} else {
-			ctx.JSON(http.StatusForbidden, util.NewResMsg("0", err.Error(), nil))
-			return
 		}
-
+		ctx.JSON(http.StatusForbidden, util.NewResMsg("0", err.Error(), nil))
+		return
 	}
 
 	ctx.JSON(http.StatusOK, util.NewResMsg("1", "注册成功", nil))

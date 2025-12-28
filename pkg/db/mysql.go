@@ -65,6 +65,9 @@ func initMySQL(sqlCfg *config.MySQLConfig) (*DBS, error) {
 	dao.MigrateUserBasic(MasterDB)
 	dao.MigrateMessage(MasterDB)
 	dao.MigrateConversation(MasterDB)
+	dao.MigrateGroup(MasterDB)
+	dao.MigrateGroupMember(MasterDB)
+	dao.MigrateGroupMember(MasterDB)
 
 	return &DBS{
 		Master: MasterDB,
