@@ -28,11 +28,11 @@ type PushPayLoad struct {
 }
 
 type PushService struct {
-	redisCache  cache.ICacheRepository
-	userService IUserService
+	redisCache  *cache.RedisCache
+	userService *UserService
 }
 
-func NewPushService(rc cache.ICacheRepository, us IUserService) *PushService {
+func NewPushService(rc *cache.RedisCache, us *UserService) *PushService {
 	return &PushService{
 		redisCache:  rc,
 		userService: us,

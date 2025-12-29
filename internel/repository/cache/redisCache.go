@@ -47,19 +47,19 @@ var (
 	ErrType      = errors.New("data type error")
 )
 
-type redisCache struct {
+type RedisCache struct {
 	rdb *redis.Client
 }
 
-func NewRedisCache(rdb *redis.Client) ICacheRepository {
-	return &redisCache{rdb: rdb}
+func NewRedisCache(rdb *redis.Client) *RedisCache {
+	return &RedisCache{rdb: rdb}
 }
 
-func (rc *redisCache) TxPipeline() redis.Pipeliner {
+func (rc *RedisCache) TxPipeline() redis.Pipeliner {
 	return rc.rdb.TxPipeline()
 }
 
-func (rc *redisCache) Exists(ctx context.Context, keys ...string) (bool, error) {
+func (rc *RedisCache) Exists(ctx context.Context, keys ...string) (bool, error) {
 	result, err := rc.rdb.Exists(ctx, keys...).Result()
 	if err != nil {
 		zap.L().Error("cache get error", zap.Error(err), zap.Strings("keys", keys))
@@ -69,7 +69,7 @@ func (rc *redisCache) Exists(ctx context.Context, keys ...string) (bool, error) 
 }
 
 // Set 通用方法
-func (rc *redisCache) Set(ctx context.Context, key string, dest interface{}, expiration time.Duration) error {
+func (rc *RedisCache) Set(ctx context.Context, key string, dest interface{}, expiration time.Duration) error {
 	data, err := json.Marshal(dest)
 	if err != nil {
 		zap.L().Error("cache marshal error", zap.Error(err), zap.String("key", key))
@@ -79,7 +79,7 @@ func (rc *redisCache) Set(ctx context.Context, key string, dest interface{}, exp
 }
 
 // Get 通用方法（自动反序列化）
-func (rc *redisCache) Get(ctx context.Context, key string, dest interface{}) (bool, error) {
+func (rc *RedisCache) Get(ctx context.Context, key string, dest interface{}) (bool, error) {
 	data, err := rc.rdb.Get(ctx, key).Bytes()
 	if errors.Is(err, redis.Nil) {
 		return false, nil // 键不存在不视为错误
@@ -94,7 +94,7 @@ func (rc *redisCache) Get(ctx context.Context, key string, dest interface{}) (bo
 	return true, nil
 }
 
-func (rc *redisCache) Delete(ctx context.Context, keys ...string) error {
+func (rc *RedisCache) Delete(ctx context.Context, keys ...string) error {
 	err := rc.rdb.Del(ctx, keys...).Err()
 	if err != nil {
 		zap.L().Error("cache del error", zap.Error(err), zap.Strings("keys", keys))
@@ -103,7 +103,7 @@ func (rc *redisCache) Delete(ctx context.Context, keys ...string) error {
 	return nil
 }
 
-func (rc *redisCache) Incr(ctx context.Context, key string) (int64, error) {
+func (rc *RedisCache) Incr(ctx context.Context, key string) (int64, error) {
 	id, err := rc.rdb.Incr(ctx, key).Result()
 	if err != nil {
 		zap.L().Warn(fmt.Sprintf("[INCR]-失败 key: %s ", key), zap.Error(err))
@@ -112,7 +112,7 @@ func (rc *redisCache) Incr(ctx context.Context, key string) (int64, error) {
 	return id, nil
 }
 
-func (rc *redisCache) SetNX(ctx context.Context, key string, dest interface{}, expireTime time.Duration) (bool, error) {
+func (rc *RedisCache) SetNX(ctx context.Context, key string, dest interface{}, expireTime time.Duration) (bool, error) {
 	// 进行序列化
 	data, err := json.Marshal(dest)
 	if err != nil {
@@ -126,7 +126,7 @@ func (rc *redisCache) SetNX(ctx context.Context, key string, dest interface{}, e
 	return success, err
 }
 
-func (rc *redisCache) Publish(ctx context.Context, channel string, message interface{}) error {
+func (rc *RedisCache) Publish(ctx context.Context, channel string, message interface{}) error {
 	err := rc.rdb.Publish(ctx, channel, message).Err()
 	if err != nil {
 		zap.L().Warn(fmt.Sprintf("[PUBLISH]-失败 channel: %s 订阅", channel), zap.Error(err))
@@ -135,11 +135,11 @@ func (rc *redisCache) Publish(ctx context.Context, channel string, message inter
 	return nil
 }
 
-func (rc *redisCache) Subscribe(ctx context.Context, channel string) *redis.PubSub {
+func (rc *RedisCache) Subscribe(ctx context.Context, channel string) *redis.PubSub {
 	return rc.rdb.Subscribe(ctx, channel)
 }
 
-func (rc *redisCache) ZAdd(ctx context.Context, key string, score float64, member []byte, expire time.Duration) error {
+func (rc *RedisCache) ZAdd(ctx context.Context, key string, score float64, member []byte, expire time.Duration) error {
 	pipe := rc.rdb.Pipeline()
 	pipe.ZAdd(ctx, key, &redis.Z{
 		Score:  score,
@@ -152,7 +152,7 @@ func (rc *redisCache) ZAdd(ctx context.Context, key string, score float64, membe
 	return err
 }
 
-func (rc *redisCache) ZRange(ctx context.Context, key string, start uint64, limit int64) ([][]byte, bool, error) {
+func (rc *RedisCache) ZRange(ctx context.Context, key string, start uint64, limit int64) ([][]byte, bool, error) {
 	exist, err := rc.rdb.Exists(ctx, key).Result()
 	if err != nil {
 		return nil, false, err
@@ -180,7 +180,7 @@ func (rc *redisCache) ZRange(ctx context.Context, key string, start uint64, limi
 	return res, true, nil
 }
 
-func (rc *redisCache) HSet(ctx context.Context, key string, fields ...map[string]interface{}) error {
+func (rc *RedisCache) HSet(ctx context.Context, key string, fields ...map[string]interface{}) error {
 	_, err := rc.rdb.HSet(ctx, key, fields).Result()
 	if err != nil {
 		return err
@@ -188,7 +188,7 @@ func (rc *redisCache) HSet(ctx context.Context, key string, fields ...map[string
 	return nil
 }
 
-func (rc *redisCache) HMGet(ctx context.Context, key string, fields ...string) ([]interface{}, error) {
+func (rc *RedisCache) HMGet(ctx context.Context, key string, fields ...string) ([]interface{}, error) {
 	result, err := rc.rdb.HMGet(ctx, key, fields...).Result()
 	if err != nil {
 		return nil, err
@@ -196,7 +196,7 @@ func (rc *redisCache) HMGet(ctx context.Context, key string, fields ...string) (
 	return result, err
 }
 
-func (rc *redisCache) SAdd(ctx context.Context, key string, expire time.Duration, members ...interface{}) error {
+func (rc *RedisCache) SAdd(ctx context.Context, key string, expire time.Duration, members ...interface{}) error {
 	if _, err := rc.rdb.SAdd(ctx, key, members...).Result(); err != nil {
 		return err
 	}
@@ -208,7 +208,7 @@ func (rc *redisCache) SAdd(ctx context.Context, key string, expire time.Duration
 	return nil
 }
 
-func (rc *redisCache) SMembers(ctx context.Context, key string) ([]string, error) {
+func (rc *RedisCache) SMembers(ctx context.Context, key string) ([]string, error) {
 	result, err := rc.rdb.SMembers(ctx, key).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -220,7 +220,7 @@ func (rc *redisCache) SMembers(ctx context.Context, key string) ([]string, error
 }
 
 // SRem 删除集合元素
-func (rc *redisCache) SRem(ctx context.Context, key string, members ...interface{}) error {
+func (rc *RedisCache) SRem(ctx context.Context, key string, members ...interface{}) error {
 	_, err := rc.rdb.SRem(ctx, key, members...).Result()
 	if err != nil {
 		return err
@@ -228,7 +228,7 @@ func (rc *redisCache) SRem(ctx context.Context, key string, members ...interface
 	return nil
 }
 
-func (rc *redisCache) SMembersWithCheck(ctx context.Context, key string) ([]string, bool, error) {
+func (rc *RedisCache) SMembersWithCheck(ctx context.Context, key string) ([]string, bool, error) {
 	// 1. 先检查键是否存在
 	exist, err := rc.rdb.Exists(ctx, key).Result()
 	if err != nil {
@@ -247,12 +247,12 @@ func (rc *redisCache) SMembersWithCheck(ctx context.Context, key string) ([]stri
 }
 
 // ZRemRange 删除小于指定分数的元素
-func (rc *redisCache) ZRemRange(ctx context.Context, key string, score interface{}) error {
+func (rc *RedisCache) ZRemRange(ctx context.Context, key string, score interface{}) error {
 	err := rc.rdb.ZRemRangeByScore(ctx, key, "-inf", fmt.Sprintf("%v", score)).Err()
 	return err
 }
 
-func (rc *redisCache) DedupAndSeq(ctx context.Context, keys []string, expire time.Duration) (int64, error) {
+func (rc *RedisCache) DedupAndSeq(ctx context.Context, keys []string, expire time.Duration) (int64, error) {
 	var v int64
 	var ok bool
 	if ret, err := dedupAndSeqScript.Run(ctx, rc.rdb, keys, int64(expire.Seconds())).Result(); err != nil {
@@ -265,7 +265,7 @@ func (rc *redisCache) DedupAndSeq(ctx context.Context, keys []string, expire tim
 }
 
 // UpdateUserConv 更新用户会话列表
-func (rc *redisCache) UpdateUserConv(ctx context.Context, key string, expire time.Duration, convIDs []string) error {
+func (rc *RedisCache) UpdateUserConv(ctx context.Context, key string, expire time.Duration, convIDs []string) error {
 	// 使用lua脚本：先对Set进行删除，再对Set进行添加
 	return nil
 }

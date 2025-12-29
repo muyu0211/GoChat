@@ -24,12 +24,12 @@ type ISyncService interface {
 }
 
 type SyncService struct {
-	redisCache cache.ICacheRepository
-	chatRepo   repository.IChatRepo
-	convRepo   repository.IConversationRepo
+	redisCache *cache.RedisCache
+	chatRepo   *repository.ChatRepo
+	convRepo   *repository.ConvRepo
 }
 
-func NewSyncService(rc cache.ICacheRepository, cr repository.IChatRepo, ccr repository.IConversationRepo) *SyncService {
+func NewSyncService(rc *cache.RedisCache, cr *repository.ChatRepo, ccr *repository.ConvRepo) *SyncService {
 	return &SyncService{
 		redisCache: rc,
 		chatRepo:   cr,
