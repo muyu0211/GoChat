@@ -2,6 +2,9 @@ package main
 
 import (
 	"GoChat/config"
+	"GoChat/internel/handler"
+	"GoChat/internel/infrastructure/mq"
+	"GoChat/internel/service"
 	"GoChat/pkg/auth"
 	"GoChat/pkg/db"
 	"GoChat/pkg/logger"
@@ -11,43 +14,24 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
 	"os/signal"
-	"reflect"
 	"runtime/debug"
-	"sync/atomic"
 	"syscall"
 	"time"
-	"unsafe"
-
-	_ "net/http/pprof"
 
 	"github.com/gin-gonic/gin"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 )
 
-var ptr unsafe.Pointer
-
-type appConfig struct {
-	Name string `mapstructure:"name"`
-	Port string `mapstructure:"port"`
-	Mode string `mapstructure:"mode"`
-}
-
-func startServer() {
-	var appCfg *appConfig
-	if err := viper.UnmarshalKey("app", &appCfg); err != nil {
-		panic(fmt.Errorf("unable to decode into %s, %v", reflect.TypeOf(appCfg).Name(), err))
-	}
-	atomic.StorePointer(&ptr, unsafe.Pointer(appCfg))
-}
-
-//func config() *appConfig {
-//	return (*appConfig)(atomic.LoadPointer(&ptr))
-//}
-
-func init() {
-
+type App struct {
+	ChatHandler  *handler.ChatHandler
+	UserHandler  *handler.UserHandler
+	GroupHandler *handler.GroupHandler
+	ChatService  service.IChatService
+	PushService  service.IPushService
+	AckConsumer  *mq.AckConsumer
+	AckProducer  *mq.AckProducer
 }
 
 func main() {
@@ -58,26 +42,29 @@ func main() {
 
 	// 初始化配置文件
 	cfg := config.LoadConfig()
-
+	
 	// 服务启动
-	//startServer()
 	logger.StartLogger(cfg)
 	db.StartMySQL(cfg)
 	db.StartRedis(cfg)
 	auth.StartJWT(cfg)
 	util.StartAntsPool(cfg)
 
-	r := gin.New()
-	router.InitRouter(r)
-	if err := r.Run(cfg.BasicConfig.Port); err != nil {
-		zap.L().Fatal("Error: server start error:", zap.Error(err))
+	app, err := InitializeApp()
+	if err != nil {
+		panic(fmt.Sprintf("依赖注入失败: %v", err))
 	}
 
+	// 初始化 Gin 路由器
+	r := gin.New()
+	// 注册业务路由
+	router.InitRouter(r, app.UserHandler, app.ChatHandler, app.GroupHandler)
+	// 创建标准http.Server（唯一服务实例，用于优雅关闭）
 	server := &http.Server{
 		Addr:    cfg.BasicConfig.Port,
 		Handler: r,
 	}
-
+	// 监听系统终止信号，创建优雅关闭上下文
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		syscall.SIGINT,
@@ -86,8 +73,10 @@ func main() {
 	)
 	defer stop()
 
+	// 启动 HTTP 服务
 	util.SafeGo(func() {
 		zap.L().Info("HTTP server starting", zap.String("addr", server.Addr))
+		// 启动服务后，该goroutine会同步阻塞在者当前位置
 		if err := server.ListenAndServe(); err != nil && errors.Is(err, http.ErrServerClosed) {
 			zap.L().Error("HTTP server error:", zap.Error(err))
 			stop()
@@ -104,6 +93,14 @@ func main() {
 				debug.FreeOSMemory()
 			}
 		}
+	})
+	// 启动 redis 订阅
+	util.SafeGo(func() {
+		app.PushService.Subscribe(context.Background(), util.GetRedisPubSubChannel())
+	})
+	// 启动消费者监听
+	util.SafeGo(func() {
+		app.ChatService.Run(context.Background())
 	})
 
 	// 阻塞等待服务关闭信号

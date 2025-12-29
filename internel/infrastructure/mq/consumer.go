@@ -44,7 +44,6 @@ func NewKafkaConsumer(brokers []string, cfg *config.BusinessConfig) (Consumer, e
 		StartOffset:    cfg.Consumer.StartOffset,
 		//Logger:         logger.NewZapKafkaAdapter(logger.KafkaLogger.Sugar(), zap.DebugLevel),
 	})
-
 	return &kafkaConsumer{r: r}, nil
 }
 

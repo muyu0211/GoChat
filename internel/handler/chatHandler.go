@@ -44,7 +44,6 @@ func (ch *ChatHandler) Connect(c *gin.Context) {
 	// 1. 判断用户登陆情况
 	var userID uint64
 	var ok bool
-	ctx := c.Request.Context()
 	v, exists := c.Get(util.CtxUserIDKey)
 	if !exists {
 		c.JSON(http.StatusUnauthorized, util.NewResMsg("0", "登录已过期", nil))
@@ -55,6 +54,7 @@ func (ch *ChatHandler) Connect(c *gin.Context) {
 		return
 	}
 
+	ctx := c.Request.Context()
 	// 2. 从c中取出Writer和Request
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"GoChat/pkg/util"
 	"context"
 	"database/sql"
+
 	"gorm.io/gorm"
 )
 
@@ -18,7 +19,7 @@ type TxManager struct {
 
 type svsFn func(ctx context.Context) error // service层方法
 
-func NewTxManager(db *gorm.DB) ITxManager {
+func NewTxManager(db *gorm.DB) *TxManager {
 	return &TxManager{db: db}
 }
 

@@ -39,21 +39,21 @@ const (
 	phone
 )
 
-type userService struct {
-	userRepo   repository.IUserRepo
-	redisCache cache.ICacheRepository
-	tx         ITxManager
+type UserService struct {
+	userRepo   *repository.UserRepo
+	redisCache *cache.RedisCache
+	tx         *TxManager
 }
 
-func NewUserService(repo repository.IUserRepo, cache cache.ICacheRepository, tx ITxManager) IUserService {
-	return &userService{userRepo: repo, redisCache: cache, tx: tx}
+func NewUserService(repo *repository.UserRepo, cache *cache.RedisCache, tx *TxManager) *UserService {
+	return &UserService{userRepo: repo, redisCache: cache, tx: tx}
 }
 
-func (us *userService) CreateUser(ctx context.Context, user *dao.UserBasicModel) error {
+func (us *UserService) CreateUser(ctx context.Context, user *dao.UserBasicModel) error {
 	return nil
 }
 
-func (us *userService) SendEmailCode(ctx context.Context, title, email string) error {
+func (us *UserService) SendEmailCode(ctx context.Context, title, email string) error {
 	// 解析邮件模板
 	tmp, err := template.ParseFiles("web/template/email.html")
 	if err != nil {
@@ -103,7 +103,7 @@ func (us *userService) SendEmailCode(ctx context.Context, title, email string) e
 	return nil
 }
 
-func (us *userService) SendPhoneCode(ctx context.Context, phone string) error {
+func (us *UserService) SendPhoneCode(ctx context.Context, phone string) error {
 	zap.L().Warn("SendPhoneCode is not implement")
 	return errors.New("SendPhoneCode is not implement")
 }
@@ -124,7 +124,7 @@ func checkCode(originCode, code string, err error) error {
 }
 
 // LoginInCode 验证码登录
-func (us *userService) LoginInCode(ctx context.Context, req *dto.LoginRequest) (*dto.LoginResponse, error) {
+func (us *UserService) LoginInCode(ctx context.Context, req *dto.LoginRequest) (*dto.LoginResponse, error) {
 	// 1. 验证邮箱/手机号
 	flag := -1
 	if util.ValidEmail(req.EmailOrPhone) {
@@ -199,7 +199,7 @@ func (us *userService) LoginInCode(ctx context.Context, req *dto.LoginRequest) (
 	return resp, nil
 }
 
-func (us *userService) LoginInPW(ctx context.Context, req *dto.LoginRequest) (*dto.LoginResponse, error) {
+func (us *UserService) LoginInPW(ctx context.Context, req *dto.LoginRequest) (*dto.LoginResponse, error) {
 	// 1. 验证邮箱/手机号
 	flag := -1
 	if util.ValidEmail(req.EmailOrPhone) {
@@ -262,7 +262,7 @@ func (us *userService) LoginInPW(ctx context.Context, req *dto.LoginRequest) (*d
 	return resp, nil
 }
 
-func (us *userService) Register(ctx context.Context, req *dto.RegisterRequest) error {
+func (us *UserService) Register(ctx context.Context, req *dto.RegisterRequest) error {
 	// 1. 验证邮箱/手机号
 	flag := -1
 	if util.ValidEmail(req.EmailOrPhone) {
@@ -317,7 +317,7 @@ func (us *userService) Register(ctx context.Context, req *dto.RegisterRequest) e
 }
 
 // UserOnline 用户上线：记录 用户：UserID 所在的服务器结点的ID： ServerID
-func (us *userService) UserOnline(ctx context.Context, userID uint64) error {
+func (us *UserService) UserOnline(ctx context.Context, userID uint64) error {
 	key := fmt.Sprintf("%s:%s", util.KeyUserLocation, strconv.FormatUint(userID, 10))
 	err := us.redisCache.Set(ctx, key, util.ServerID, util.CodeUserLocationExpire)
 	if err != nil {
@@ -327,7 +327,7 @@ func (us *userService) UserOnline(ctx context.Context, userID uint64) error {
 }
 
 // UserOffline 用户离线：删除记录
-func (us *userService) UserOffline(ctx context.Context, userID uint64) error {
+func (us *UserService) UserOffline(ctx context.Context, userID uint64) error {
 	key := fmt.Sprintf("%s:%s", util.KeyUserLocation, strconv.FormatUint(userID, 10))
 	// 严谨做法：这里应该用 Lua 脚本校验 Value 是否是当前 ServerID 再删
 	// 防止并发下误删了用户刚重连到另一台服务器的状态
@@ -338,7 +338,7 @@ func (us *userService) UserOffline(ctx context.Context, userID uint64) error {
 	return nil
 }
 
-func (us *userService) GetUserLocation(ctx context.Context, userID uint64) (string, error) {
+func (us *UserService) GetUserLocation(ctx context.Context, userID uint64) (string, error) {
 	key := fmt.Sprintf("%s:%s", util.KeyUserLocation, strconv.FormatUint(userID, 10))
 	var location string
 	ok, err := us.redisCache.Get(ctx, key, &location)

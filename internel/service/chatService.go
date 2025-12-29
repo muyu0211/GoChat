@@ -28,26 +28,26 @@ type IChatService interface {
 	HandleDeleteMsg(context.Context, *ws.Client, *ws.SendMsg) error
 }
 
-type chatService struct {
-	seqFactory  ISeqFactoryService
-	pushService IPushService
-	chatRepo    repository.IChatRepo
-	converRepo  repository.IConversationRepo
-	redisCache  cache.ICacheRepository
-	tx          ITxManager
-	producer    mq.Producer
-	consumer    mq.Consumer
+type ChatService struct {
+	seqFactory  *SeqFactoryService
+	pushService *PushService
+	chatRepo    *repository.ChatRepo
+	converRepo  *repository.ConvRepo
+	redisCache  *cache.RedisCache
+	tx          *TxManager
+	producer    *mq.AckProducer
+	consumer    *mq.AckConsumer
 
 	// 内存缓冲区: Key: "ConversationID" (聚合维度)；Value: MaxSeqID (聚合结果)
 	buffer        map[string]uint64
 	bufferLock    sync.RWMutex
-	batchSize     int           // 攒够多少条刷库
-	flushInterval time.Duration // 多久刷一次库
+	batchSize     int
+	flushInterval time.Duration
 }
 
-func NewChatService(sq ISeqFactoryService, ps IPushService, cr repository.IChatRepo, ccr repository.IConversationRepo,
-	tx ITxManager, rc cache.ICacheRepository, producer mq.Producer, consumer mq.Consumer) IChatService {
-	cs := &chatService{
+func NewChatService(sq *SeqFactoryService, ps *PushService, cr *repository.ChatRepo, ccr *repository.ConvRepo,
+	tx *TxManager, rc *cache.RedisCache, producer *mq.AckProducer, consumer *mq.AckConsumer) *ChatService {
+	cs := &ChatService{
 		seqFactory:    sq,
 		pushService:   ps,
 		chatRepo:      cr,
@@ -68,7 +68,7 @@ func NewChatService(sq ISeqFactoryService, ps IPushService, cr repository.IChatR
 }
 
 // Run 启动kafka消费服务
-func (c *chatService) Run(ctx context.Context) {
+func (c *ChatService) Run(ctx context.Context) {
 	// 1. 启动定时刷库协程
 	util.SafeGo(func() {
 		c.flushLoop(ctx)
@@ -80,7 +80,7 @@ func (c *chatService) Run(ctx context.Context) {
 }
 
 // HandleChatMsg 处理上行聊天消息(用户发送过来的消息): 整个“上行”流程：去重 -> 取号 -> 落库 -> (给客户端)返回 ACK 数据。
-func (c *chatService) HandleChatMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
+func (c *ChatService) HandleChatMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
 	var conversationID string
 	senderID := client.UserID
 	// 1. 获取会话ID
@@ -175,7 +175,7 @@ func (c *chatService) HandleChatMsg(ctx context.Context, client *ws.Client, req 
 }
 
 // pushMsg 通用推送消息方法：将消息推送给客户端
-func (c *chatService) pushMsg(ctx context.Context, reply *ws.ReplyMsg) {
+func (c *ChatService) pushMsg(ctx context.Context, reply *ws.ReplyMsg) {
 	pushCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 
@@ -189,7 +189,7 @@ func (c *chatService) pushMsg(ctx context.Context, reply *ws.ReplyMsg) {
 }
 
 // HandleAckMsg 将ack消息转发给kafka
-func (c *chatService) HandleAckMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
+func (c *ChatService) HandleAckMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
 	// 1.构造kafka消息
 	event := mq.AckEvent{
 		SenderID:       req.SenderID,
@@ -212,7 +212,7 @@ func (c *chatService) HandleAckMsg(ctx context.Context, client *ws.Client, req *
 }
 
 // handlerAckFromMq Kafka回调函数：异步处理kafka发送过来的消息
-func (c *chatService) handlerAckFromMq(ctx context.Context, key, value []byte) error {
+func (c *ChatService) handlerAckFromMq(ctx context.Context, key, value []byte) error {
 	// 1. 接收到ack消息后，存入缓存中，之后立马返回，由另一个协程进行批量处理
 	var event = &mq.AckEvent{}
 	if err := event.Deserialize(value); err != nil {
@@ -231,12 +231,11 @@ func (c *chatService) handlerAckFromMq(ctx context.Context, key, value []byte) e
 	} else {
 		c.buffer[keyStr] = event.AckID
 	}
-	log.Println("消费者收到消息后的ackID缓存情况：", c.buffer)
 	return nil
 }
 
 // flushBuffer 将缓存中的数据刷入数据库
-func (c *chatService) flushLoop(ctx context.Context) {
+func (c *ChatService) flushLoop(ctx context.Context) {
 	ticker := time.NewTicker(c.flushInterval)
 	defer ticker.Stop()
 
@@ -251,7 +250,7 @@ func (c *chatService) flushLoop(ctx context.Context) {
 	}
 }
 
-func (c *chatService) flushToDB() {
+func (c *ChatService) flushToDB() {
 	// 核心技巧：将当前 buffer 赋值给临时变量，并创建一个新的空 map 给业务继续用 （写时复制Copy on Write）
 	c.bufferLock.Lock()
 	if len(c.buffer) == 0 {
@@ -310,7 +309,7 @@ func (c *chatService) flushToDB() {
 }
 
 // processBatchAck 批量处理ack消息
-func (c *chatService) processBatchAck(ctx context.Context, batch []*dto.UpdatesAck) {
+func (c *ChatService) processBatchAck(ctx context.Context, batch []*dto.UpdatesAck) {
 	if len(batch) == 0 {
 		return
 	}
@@ -334,12 +333,12 @@ func (c *chatService) processBatchAck(ctx context.Context, batch []*dto.UpdatesA
 }
 
 // HandleRevokeMsg 处理撤回消息
-func (c *chatService) HandleRevokeMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
+func (c *ChatService) HandleRevokeMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
 	// 1. 撤回发送给在线用户的消息；2. 撤回发送给离线用户的消息
 	return nil
 }
 
 // HandleDeleteMsg 处理删除消息
-func (c *chatService) HandleDeleteMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
+func (c *ChatService) HandleDeleteMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
 	return nil
 }

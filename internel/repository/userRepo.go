@@ -22,30 +22,29 @@ type IUserRepo interface {
 	GetByEmail(ctx context.Context, email string) (*dao.UserBasicModel, error)
 }
 
-// 接口的实现(只对外暴露interface)
-type userRepo struct {
+type UserRepo struct {
 	db *gorm.DB
 }
 
 // NewUserRepo 构造函数，进行依赖注入
-func NewUserRepo(db *gorm.DB) IUserRepo {
-	return &userRepo{db: db}
+func NewUserRepo(db *gorm.DB) *UserRepo {
+	return &UserRepo{db: db}
 }
 
 // 尝试获取事务句柄
-func (r *userRepo) getTx(ctx context.Context) *gorm.DB {
+func (r *UserRepo) getTx(ctx context.Context) *gorm.DB {
 	if tx := util.GetTx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
 }
 
-func (r *userRepo) GetByID(ctx context.Context, id uint64) (*dao.UserBasicModel, error) {
+func (r *UserRepo) GetByID(ctx context.Context, id uint64) (*dao.UserBasicModel, error) {
 	//db := r.getTx(ctx)
 	return nil, nil
 }
 
-func (r *userRepo) Create(ctx context.Context, user *dao.UserBasicModel) error {
+func (r *UserRepo) Create(ctx context.Context, user *dao.UserBasicModel) error {
 	db := r.getTx(ctx)
 	err := db.Create(user).Error
 	if isDuplicateError(err) {
@@ -54,19 +53,19 @@ func (r *userRepo) Create(ctx context.Context, user *dao.UserBasicModel) error {
 	return nil
 }
 
-func (r *userRepo) Delete(ctx context.Context, user *dao.UserBasicModel) error {
+func (r *UserRepo) Delete(ctx context.Context, user *dao.UserBasicModel) error {
 	return nil
 }
 
-func (r *userRepo) Update(ctx context.Context, user *dao.UserBasicModel) error {
+func (r *UserRepo) Update(ctx context.Context, user *dao.UserBasicModel) error {
 	return nil
 }
 
-func (r *userRepo) List(ctx context.Context, params QueryParams) ([]dao.UserBasicModel, int64, error) {
+func (r *UserRepo) List(ctx context.Context, params QueryParams) ([]dao.UserBasicModel, int64, error) {
 	return nil, 0, nil
 }
 
-func (r *userRepo) GetByPhone(ctx context.Context, phone string) (*dao.UserBasicModel, error) {
+func (r *UserRepo) GetByPhone(ctx context.Context, phone string) (*dao.UserBasicModel, error) {
 	var user dao.UserBasicModel
 	err := r.getTx(ctx).WithContext(ctx).Model(&dao.UserBasicModel{}).Where("phone = ?", phone).Take(&user).Error
 
@@ -78,7 +77,7 @@ func (r *userRepo) GetByPhone(ctx context.Context, phone string) (*dao.UserBasic
 	}
 	return &user, nil
 }
-func (r *userRepo) GetByEmail(ctx context.Context, email string) (*dao.UserBasicModel, error) {
+func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*dao.UserBasicModel, error) {
 	var user dao.UserBasicModel
 	err := r.getTx(ctx).WithContext(ctx).Model(&dao.UserBasicModel{}).Where("email = ?", email).Take(&user).Error
 

@@ -21,26 +21,26 @@ type IChatRepo interface {
 	UpdateMsgStatus(ctx context.Context, conversationID string, seqID uint64, isPushed bool) error
 }
 
-type chatRepo struct {
+type ChatRepo struct {
 	db *gorm.DB
 }
 
-func NewChatRepo(db *gorm.DB) IChatRepo {
-	return &chatRepo{
+func NewChatRepo(db *gorm.DB) *ChatRepo {
+	return &ChatRepo{
 		db: db,
 	}
 }
 
-func (r *chatRepo) getTx(ctx context.Context) *gorm.DB {
+func (r *ChatRepo) getTx(ctx context.Context) *gorm.DB {
 	if tx := util.GetTx(ctx); tx != nil {
 		return tx
 	}
 	return r.db
 }
-func (r *chatRepo) GetByID(ctx context.Context, id uint64) (*dao.MessageModel, error) {
+func (r *ChatRepo) GetByID(ctx context.Context, id uint64) (*dao.MessageModel, error) {
 	return nil, nil
 }
-func (r *chatRepo) Create(ctx context.Context, msg *dao.MessageModel) error {
+func (r *ChatRepo) Create(ctx context.Context, msg *dao.MessageModel) error {
 	db := r.getTx(ctx)
 	err := db.Model(&dao.MessageModel{}).WithContext(ctx).Create(msg).Error
 	if err != nil {
@@ -49,13 +49,13 @@ func (r *chatRepo) Create(ctx context.Context, msg *dao.MessageModel) error {
 	}
 	return nil
 }
-func (r *chatRepo) Delete(ctx context.Context, msg *dao.MessageModel) error {
+func (r *ChatRepo) Delete(ctx context.Context, msg *dao.MessageModel) error {
 	return nil
 }
-func (r *chatRepo) Update(ctx context.Context, msg *dao.MessageModel) error {
+func (r *ChatRepo) Update(ctx context.Context, msg *dao.MessageModel) error {
 	return nil
 }
-func (r *chatRepo) List(ctx context.Context, params QueryParams) ([]dao.MessageModel, int64, error) {
+func (r *ChatRepo) List(ctx context.Context, params QueryParams) ([]dao.MessageModel, int64, error) {
 	db := r.getTx(ctx).WithContext(ctx)
 	var msgs []dao.MessageModel
 	var total int64
@@ -86,7 +86,7 @@ func (r *chatRepo) List(ctx context.Context, params QueryParams) ([]dao.MessageM
 	return msgs, total, nil
 }
 
-func (r *chatRepo) GetMsgsByLastSeqID(ctx context.Context, userID uint64, conversationID string, seqID uint64, limit int64) ([]dao.MessageModel, error) {
+func (r *ChatRepo) GetMsgsByLastSeqID(ctx context.Context, userID uint64, conversationID string, seqID uint64, limit int64) ([]dao.MessageModel, error) {
 	var msgs []dao.MessageModel
 
 	log.Printf("数据库查找: %s, %d", conversationID, seqID)
@@ -100,7 +100,7 @@ func (r *chatRepo) GetMsgsByLastSeqID(ctx context.Context, userID uint64, conver
 	return msgs, err
 }
 
-func (r *chatRepo) UpdateMsgStatus(ctx context.Context, conversationID string, seqID uint64, isPushed bool) error {
+func (r *ChatRepo) UpdateMsgStatus(ctx context.Context, conversationID string, seqID uint64, isPushed bool) error {
 	db := r.getTx(ctx)
 	result := db.Model(&dao.MessageModel{}).WithContext(ctx).
 		Where("conversation_id = ? AND seq_id = ?", conversationID, seqID).
