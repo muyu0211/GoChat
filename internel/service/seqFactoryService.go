@@ -23,11 +23,11 @@ type ISeqFactoryService interface {
 }
 
 type SeqFactoryService struct {
-	chatCache cache.ICacheRepository
-	convRepo  repository.IConversationRepo
+	chatCache *cache.RedisCache
+	convRepo  *repository.ConvRepo
 }
 
-func NewSeqFactory(cc cache.ICacheRepository, cr repository.IConversationRepo) ISeqFactoryService {
+func NewSeqFactory(cc *cache.RedisCache, cr *repository.ConvRepo) *SeqFactoryService {
 	return &SeqFactoryService{
 		chatCache: cc,
 		convRepo:  cr,
