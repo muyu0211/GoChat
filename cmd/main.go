@@ -42,13 +42,15 @@ func main() {
 
 	// 初始化配置文件
 	cfg := config.LoadConfig()
-	
+
 	// 服务启动
 	logger.StartLogger(cfg)
 	db.StartMySQL(cfg)
 	db.StartRedis(cfg)
 	auth.StartJWT(cfg)
 	util.StartAntsPool(cfg)
+	util.InitIDGenerator()
+	util.Init()
 
 	app, err := InitializeApp()
 	if err != nil {

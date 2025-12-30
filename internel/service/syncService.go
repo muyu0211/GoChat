@@ -57,7 +57,7 @@ func (ss *SyncService) GetSessions(ctx context.Context, userID uint64) (*dto.Use
 			zap.Uint64("userID", userID))
 	}
 
-	var conversations []dao.Conversation
+	var conversations []dao.ConversationModel
 	var sqlErr error
 	var shouldDB = false
 
@@ -122,7 +122,7 @@ func (ss *SyncService) GetSessions(ctx context.Context, userID uint64) (*dto.Use
 }
 
 // updateConvCache 更新会话缓存数据
-func (ss *SyncService) updateConvCache(ctx context.Context, userID uint64, conversations []dao.Conversation) error {
+func (ss *SyncService) updateConvCache(ctx context.Context, userID uint64, conversations []dao.ConversationModel) error {
 	if conversations == nil || len(conversations) == 0 {
 		return nil
 	}

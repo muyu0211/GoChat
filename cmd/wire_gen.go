@@ -14,7 +14,6 @@ import (
 	"GoChat/internel/repository/cache"
 	"GoChat/internel/service"
 	"GoChat/pkg/db"
-
 	"github.com/go-redis/redis/v8"
 	"github.com/google/wire"
 	"gorm.io/gorm"
@@ -50,7 +49,8 @@ func InitializeApp() (*App, error) {
 	syncService := service.NewSyncService(redisCache, chatRepo, convRepo)
 	chatHandler := handler.NewChatHandler(chatService, userService, syncService, pushService)
 	userHandler := handler.NewUserHandler(userService)
-	groupService := service.NewGroupService(convRepo, redisCache)
+	groupRepo := repository.NewGroupRepo(db)
+	groupService := service.NewGroupService(redisCache, seqFactoryService, convRepo, groupRepo)
 	groupHandler := handler.NewGroupHandler(groupService)
 	app := &App{
 		ChatHandler:  chatHandler,
@@ -102,12 +102,12 @@ var infrastructureSet = wire.NewSet(
 )
 
 // 定义 repository 集合
-var repositorySet = wire.NewSet(repository.NewUserRepo, repository.NewChatRepo, repository.NewConvRepo)
+var repositorySet = wire.NewSet(repository.NewUserRepo, repository.NewChatRepo, repository.NewConvRepo, repository.NewGroupRepo)
 
 var cacheSet = wire.NewSet(cache.NewRedisCache)
 
 // 定义 service 集合
-var serviceSet = wire.NewSet(service.NewGroupService, wire.Bind(new(service.IGroupService), new(*service.GroupService)), service.NewUserService, wire.Bind(new(service.IUserService), new(*service.UserService)), service.NewChatService, wire.Bind(new(service.IChatService), new(*service.ChatService)), service.NewSyncService, wire.Bind(new(service.ISyncService), new(*service.SyncService)), service.NewPushService, wire.Bind(new(service.IPushService), new(*service.PushService)), service.NewTxManager, wire.Bind(new(service.ITxManager), new(*service.TxManager)), service.NewSeqFactory, wire.Bind(new(service.ISeqFactoryService), new(*service.SeqFactoryService)))
+var serviceSet = wire.NewSet(service.NewUserService, wire.Bind(new(service.IUserService), new(*service.UserService)), service.NewChatService, wire.Bind(new(service.IChatService), new(*service.ChatService)), service.NewGroupService, wire.Bind(new(service.IGroupService), new(*service.GroupService)), service.NewSyncService, wire.Bind(new(service.ISyncService), new(*service.SyncService)), service.NewPushService, wire.Bind(new(service.IPushService), new(*service.PushService)), service.NewTxManager, wire.Bind(new(service.ITxManager), new(*service.TxManager)), service.NewSeqFactory, wire.Bind(new(service.ISeqFactoryService), new(*service.SeqFactoryService)))
 
 // 定义 handler 集合
 var handlerSet = wire.NewSet(handler.NewUserHandler, handler.NewChatHandler, handler.NewGroupHandler)

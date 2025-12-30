@@ -18,9 +18,10 @@ type Config struct {
 }
 
 type BasicConfig struct {
-	Name string `mapstructure:"name"`
-	Port string `mapstructure:"port"`
-	Mode string `mapstructure:"mode"`
+	ServerID uint64 `mapstructure:"server_id"`
+	Name     string `mapstructure:"name"`
+	Port     string `mapstructure:"port"`
+	Mode     string `mapstructure:"mode"`
 }
 
 type MySQLConfig struct {

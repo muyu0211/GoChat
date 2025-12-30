@@ -1,4 +1,5 @@
 app:
+  server_id: 1
   name: "CloudStorage"
   mode: "prod" # dev, test, prod
   port: :9001

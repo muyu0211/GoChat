@@ -1,18 +1,21 @@
 package util
 
 import (
+	"GoChat/config"
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
-	"gopkg.in/gomail.v2"
 	"hash/fnv"
 	"math/rand"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/bwmarrin/snowflake"
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+	"gopkg.in/gomail.v2"
 )
 
 type ResMsg struct {
@@ -208,4 +211,20 @@ func SliceToIfaceSlice(slice interface{}) []interface{} {
 		}
 	}
 	return ifaceSlice
+}
+
+func InitIDGenerator() {
+	once.Do(func() {
+		var err error
+		// 设置起始时间
+		snowflake.Epoch = time.Date(2025, 11, 1, 0, 0, 0, 0, time.UTC).UnixNano() / 1e6
+		node, err = snowflake.NewNode(int64(config.Cfg.BasicConfig.ServerID))
+		if err != nil {
+			panic("Failed to create snowflake node" + err.Error())
+		}
+	})
+}
+
+func GenSnowflakeID() uint64 {
+	return uint64(node.Generate().Int64())
 }

@@ -1,13 +1,18 @@
 package util
 
 import (
+	"GoChat/config"
+	"fmt"
+	"sync"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/bwmarrin/snowflake"
 )
 
 var (
-	ServerID = "node-" + uuid.New().String()
+	ServerID string
+	node     *snowflake.Node
+	once     sync.Once
 )
 
 const (
@@ -35,6 +40,9 @@ const (
 	LoginInPhoneWithCode     = "phone_code"
 	LoginInEmailWithPassword = "email_password"
 	LoginInPhoneWithPassword = "phone_password"
+
+	GroupIDOffSet      uint64 = 2_000_000
+	GroupDefaultMemNum        = 500
 )
 
 const (
@@ -47,3 +55,7 @@ const (
 	CtxPhoneKey  = "Phone"
 	CtxRoleKey   = "Role"
 )
+
+func Init() {
+	ServerID = "node-" + fmt.Sprintf("%d", config.Cfg.BasicConfig.ServerID)
+}

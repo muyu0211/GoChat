@@ -14,10 +14,10 @@ import (
 )
 
 type IConvRepo interface {
-	IBaseRepository[dao.Conversation]
-	GetConvByUserID(ctx context.Context, userID uint64) ([]dao.Conversation, error)
-	GetConvByConvID(ctx context.Context, conversationID string) (*dao.Conversation, error)
-	GetConvByUserIDConvID(ctx context.Context, userID uint64, conversationIDs []string) ([]dao.Conversation, error)
+	IBaseRepository[dao.ConversationModel]
+	GetConvByUserID(ctx context.Context, userID uint64) ([]dao.ConversationModel, error)
+	GetConvByConvID(ctx context.Context, conversationID string) (*dao.ConversationModel, error)
+	GetConvByUserIDConvID(ctx context.Context, userID uint64, conversationIDs []string) ([]dao.ConversationModel, error)
 	GetLastSeqID(ctx context.Context, userID uint64, conversationID string) (uint64, error)
 	UpdateLastAck(ctx context.Context, userID uint64, conversationID string, lastAckID uint64) error
 	BulkUpdateLastAck(ctx context.Context, updates []*dto.UpdatesAck) error
@@ -41,27 +41,27 @@ func (r *ConvRepo) getTx(ctx context.Context) *gorm.DB {
 	}
 	return r.db
 }
-func (r *ConvRepo) GetByID(ctx context.Context, id uint64) (*dao.Conversation, error) {
+func (r *ConvRepo) GetByID(ctx context.Context, id uint64) (*dao.ConversationModel, error) {
 	return nil, nil
 }
-func (r *ConvRepo) Create(ctx context.Context, entity *dao.Conversation) error {
+func (r *ConvRepo) Create(ctx context.Context, entity *dao.ConversationModel) error {
 	return nil
 }
-func (r *ConvRepo) Delete(ctx context.Context, entity *dao.Conversation) error {
+func (r *ConvRepo) Delete(ctx context.Context, entity *dao.ConversationModel) error {
 	return nil
 }
-func (r *ConvRepo) Update(ctx context.Context, entity *dao.Conversation) error {
+func (r *ConvRepo) Update(ctx context.Context, entity *dao.ConversationModel) error {
 	return nil
 }
-func (r *ConvRepo) List(ctx context.Context, params QueryParams) ([]dao.Conversation, int64, error) {
+func (r *ConvRepo) List(ctx context.Context, params QueryParams) ([]dao.ConversationModel, int64, error) {
 	return nil, 0, nil
 }
 
 // GetConvByUserID 根据UserID获取该用户的所有会话
-func (r *ConvRepo) GetConvByUserID(ctx context.Context, userID uint64) ([]dao.Conversation, error) {
+func (r *ConvRepo) GetConvByUserID(ctx context.Context, userID uint64) ([]dao.ConversationModel, error) {
 	db := r.getTx(ctx)
-	var conversations []dao.Conversation
-	result := db.Model(&dao.Conversation{}).WithContext(ctx).
+	var conversations []dao.ConversationModel
+	result := db.Model(&dao.ConversationModel{}).WithContext(ctx).
 		Where("owner_id = ?", userID).
 		Find(&conversations)
 
@@ -74,10 +74,10 @@ func (r *ConvRepo) GetConvByUserID(ctx context.Context, userID uint64) ([]dao.Co
 	return conversations, nil
 }
 
-func (r *ConvRepo) GetConvByConvID(ctx context.Context, conversationID string) (*dao.Conversation, error) {
+func (r *ConvRepo) GetConvByConvID(ctx context.Context, conversationID string) (*dao.ConversationModel, error) {
 	db := r.getTx(ctx)
-	var conversation dao.Conversation
-	result := db.Model(&dao.Conversation{}).WithContext(ctx).
+	var conversation dao.ConversationModel
+	result := db.Model(&dao.ConversationModel{}).WithContext(ctx).
 		Where("conversation_id = ?", conversationID).
 		Find(&conversation)
 	if result.Error != nil {
@@ -87,10 +87,10 @@ func (r *ConvRepo) GetConvByConvID(ctx context.Context, conversationID string) (
 }
 
 // GetConvByUserIDConvID 根据UserID和ConvID批量获取会话
-func (r *ConvRepo) GetConvByUserIDConvID(ctx context.Context, userID uint64, conversationIDs []string) ([]dao.Conversation, error) {
+func (r *ConvRepo) GetConvByUserIDConvID(ctx context.Context, userID uint64, conversationIDs []string) ([]dao.ConversationModel, error) {
 	db := r.getTx(ctx)
-	var conversations []dao.Conversation
-	result := db.Model(&dao.Conversation{}).WithContext(ctx).
+	var conversations []dao.ConversationModel
+	result := db.Model(&dao.ConversationModel{}).WithContext(ctx).
 		Where("user_id = ? and conversation_id in ?", userID, conversationIDs).
 		Find(&conversations)
 
@@ -102,8 +102,8 @@ func (r *ConvRepo) GetConvByUserIDConvID(ctx context.Context, userID uint64, con
 
 func (r *ConvRepo) GetLastSeqID(ctx context.Context, userID uint64, conversationID string) (uint64, error) {
 	db := r.getTx(ctx)
-	var conversation dao.Conversation
-	result := db.Model(&dao.Conversation{}).WithContext(ctx).
+	var conversation dao.ConversationModel
+	result := db.Model(&dao.ConversationModel{}).WithContext(ctx).
 		Select("last_seq_id").
 		Where("owner_id = ? and conversation_id = ?", userID, conversationID).Find(&conversation)
 	if result.Error != nil {
@@ -114,7 +114,7 @@ func (r *ConvRepo) GetLastSeqID(ctx context.Context, userID uint64, conversation
 
 func (r *ConvRepo) UpdateLastAck(ctx context.Context, userID uint64, conversationID string, lastAckID uint64) error {
 	db := r.getTx(ctx)
-	result := db.Model(&dao.Conversation{}).WithContext(ctx).
+	result := db.Model(&dao.ConversationModel{}).WithContext(ctx).
 		Where("owner_id = ? and conversation_id = ?", userID, conversationID).
 		Updates(map[string]interface{}{
 			"last_ack_id":  lastAckID,
@@ -144,7 +144,7 @@ func (r *ConvRepo) BulkUpdateLastAck(ctx context.Context, updates []*dto.Updates
 		sql.WriteString("(owner_id = ? AND conversation_id = ?)")
 		args = append(args, item.UserID, item.ConversationID)
 	}
-	if err := db.Model(&dao.Conversation{}).WithContext(ctx).Exec(sql.String(), args...).Error; err != nil {
+	if err := db.Model(&dao.ConversationModel{}).WithContext(ctx).Exec(sql.String(), args...).Error; err != nil {
 		return err
 	}
 
@@ -154,7 +154,7 @@ func (r *ConvRepo) BulkUpdateLastAck(ctx context.Context, updates []*dto.Updates
 // UpdateSenderConversation 更新发送者会话
 func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
 	db := r.getTx(ctx)
-	return db.Model(&dao.Conversation{}).WithContext(ctx).Clauses(clause.OnConflict{
+	return db.Model(&dao.ConversationModel{}).WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "owner_id"}, {Name: "conversation_id"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"updated_at":   updatedAt,
@@ -162,7 +162,7 @@ func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, recei
 			"last_ack_id":  seqID,
 			"unread_count": 0,
 		}), // 插入冲突时则进行更新操作
-	}).Create(&dao.Conversation{
+	}).Create(&dao.ConversationModel{
 		OwnerID:        senderID,
 		ConversationID: convID,
 		OtherUserID:    receiverID,
@@ -176,7 +176,7 @@ func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, recei
 // UpdateReceiverConversation 更新接收者会话
 func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
 	db := r.getTx(ctx)
-	return db.Model(&dao.Conversation{}).WithContext(ctx).Clauses(
+	return db.Model(&dao.ConversationModel{}).WithContext(ctx).Clauses(
 		clause.OnConflict{
 			Columns: []clause.Column{{Name: "owner_id"}, {Name: "conversation_id"}},
 			DoUpdates: clause.Assignments(map[string]interface{}{
@@ -184,7 +184,7 @@ func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, rec
 				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id , ?)", seqID),
 				"unread_count": gorm.Expr("unread_count + ?", 1),
 			}),
-		}).Create(&dao.Conversation{
+		}).Create(&dao.ConversationModel{
 		OwnerID:        receiverID,
 		ConversationID: convID,
 		OtherUserID:    senderID,

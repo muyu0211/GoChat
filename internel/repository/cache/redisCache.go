@@ -21,6 +21,7 @@ type ICacheRepository interface {
 	Set(context.Context, string, interface{}, time.Duration) error
 	Delete(context.Context, ...string) error
 	Incr(context.Context, string) (int64, error)
+	IncrBy(context.Context, string, int64) (int64, error)
 	SetNX(context.Context, string, interface{}, time.Duration) (bool, error)
 	Publish(ctx context.Context, channel string, message interface{}) error
 	Subscribe(ctx context.Context, channel string) *redis.PubSub
@@ -107,6 +108,15 @@ func (rc *RedisCache) Incr(ctx context.Context, key string) (int64, error) {
 	id, err := rc.rdb.Incr(ctx, key).Result()
 	if err != nil {
 		zap.L().Warn(fmt.Sprintf("[INCR]-失败 key: %s ", key), zap.Error(err))
+		return 0, err
+	}
+	return id, nil
+}
+
+func (rc *RedisCache) IncrBy(ctx context.Context, key string, step int64) (int64, error) {
+	id, err := rc.rdb.IncrBy(ctx, key, step).Result()
+	if err != nil {
+		zap.L().Warn(fmt.Sprintf("[INCRBY]-失败 key: %s 步长: %d", key, step), zap.Error(err))
 		return 0, err
 	}
 	return id, nil

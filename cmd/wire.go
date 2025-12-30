@@ -57,20 +57,21 @@ var repositorySet = wire.NewSet(
 	repository.NewUserRepo,
 	repository.NewChatRepo,
 	repository.NewConvRepo,
+	repository.NewGroupRepo,
 )
 
 var cacheSet = wire.NewSet(cache.NewRedisCache)
 
 // 定义 service 集合
 var serviceSet = wire.NewSet(
-	service.NewGroupService,
-	wire.Bind(new(service.IGroupService), new(*service.GroupService)),
-
 	service.NewUserService,
 	wire.Bind(new(service.IUserService), new(*service.UserService)),
 
 	service.NewChatService,
 	wire.Bind(new(service.IChatService), new(*service.ChatService)),
+
+	service.NewGroupService,
+	wire.Bind(new(service.IGroupService), new(*service.GroupService)),
 
 	service.NewSyncService,
 	wire.Bind(new(service.ISyncService), new(*service.SyncService)),

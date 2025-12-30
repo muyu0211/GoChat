@@ -78,8 +78,8 @@ func TestGorm(t *testing.T) {
 	util.StartAntsPool(cfg)
 
 	dbs := db.GetDBS()
-	var conversation dao.Conversation
-	result := dbs.Master.Model(&dao.Conversation{}).WithContext(context.Background()).
+	var conversation dao.ConversationModel
+	result := dbs.Master.Model(&dao.ConversationModel{}).WithContext(context.Background()).
 		Select("last_seq_id").
 		Where("owner_id = ? and conversation_id = ?", 1, "1_2").Find(&conversation)
 

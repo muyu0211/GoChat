@@ -7,8 +7,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// Conversation 代表用户的一个聊天会话 (例如 UserA 和 UserB 的聊天)
-type Conversation struct {
+// ConversationModel 代表用户的一个聊天会话 (例如 UserA 和 UserB 的聊天)
+type ConversationModel struct {
 	ID             uint64 `gorm:"primaryKey"`
 	OwnerID        uint64 `gorm:"index:idx_owner_updated;uniqueIndex:idx_owner_conv;comment:属于谁"`
 	ConversationID string `gorm:"index:idx_conv_id;uniqueIndex:idx_owner_conv;comment:会话ID (A_B)"`
@@ -23,13 +23,13 @@ type Conversation struct {
 	DeletedAt      gorm.DeletedAt
 }
 
-func (cm Conversation) TableName() string {
+func (cm ConversationModel) TableName() string {
 	return "conversation"
 }
 
 func MigrateConversation(db *gorm.DB) {
-	err := db.AutoMigrate(&Conversation{})
+	err := db.AutoMigrate(&ConversationModel{})
 	if err != nil {
-		zap.L().Warn("Conversation Table Create Warn:", zap.Error(err))
+		zap.L().Warn("ConversationModel Table Create Warn:", zap.Error(err))
 	}
 }
