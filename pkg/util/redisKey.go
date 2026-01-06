@@ -11,13 +11,15 @@ const (
 	RedisDupKey           = "im:dup_key"
 	RedisBoxKey           = "im:offline_msg_box"
 	RedisConvKey          = "im:conversation"
-	RedisSingleChatSeqKey = "im:single_chat:seq"
-	RedisSeqLockKey       = "im:seq:lock"
-	RedisGroupIdKey       = "im:group:id"
+	RedisChatSeqKey       = "im:chat:seq"
+	RedisSeqLockKey       = "im:seq:lock" // 初始化会话 SeqID 的分布式锁
+	RedisGroupIDKey       = "im:group:id"
+	RedisGroupIDOffsetKey = "im:group:id:offset"
 
 	RedisDupExpire            = 1 * time.Second
 	RedisSeqExpire            = 90 * 24 * time.Hour
 	RedisOfflineExpire        = 7 * 24 * time.Hour
+	RedisGroupIDExpire        = 30 * 24 * time.Hour
 	RedisPublishTimeout       = 3 * time.Second
 	RedisPublishRetryTimes    = 3
 	RedisPublishRetryInterval = 100 * time.Millisecond
@@ -31,10 +33,9 @@ func GetRedisPubSubChannel() string {
 	return PubSubChannel
 }
 
-func GetRedisSeqKey(conversationID string) string {
-	return fmt.Sprintf("%s:%s", RedisSingleChatSeqKey, conversationID)
+func GetRedisChatSeqKey(conversationID string) string {
+	return fmt.Sprintf("%s:%s", RedisChatSeqKey, conversationID)
 }
-
 func GetRedisSeqLockKey(conversation string) string {
 	return fmt.Sprintf("%s:%s", RedisSeqLockKey, conversation)
 }
@@ -51,6 +52,17 @@ func GetRedisDupKey(conversationID, clientMsgID string) string {
 	return fmt.Sprintf("%s:%s:%s", RedisDupKey, conversationID, clientMsgID)
 }
 
-func GetRedisGroupIdKey() string {
-	return RedisGroupIdKey
+func GetRedisGroupIDKey[T string | uint64](groupID T) string {
+	switch v := any(groupID).(type) {
+	case string:
+		return fmt.Sprintf("%s:%s", RedisGroupIDKey, v)
+	case uint64:
+		return fmt.Sprintf("%s:%d", RedisGroupIDKey, v)
+	default:
+		return fmt.Sprintf("%s:%v", RedisGroupIDKey, v)
+	}
+}
+
+func GetRedisGroupIDOffsetKey() string {
+	return RedisGroupIDOffsetKey
 }

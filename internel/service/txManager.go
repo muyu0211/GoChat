@@ -26,7 +26,7 @@ func NewTxManager(db *gorm.DB) *TxManager {
 // ExecTx 闭包形式执行事务, 当有数据需要传递时,使用闭包变量
 func (t *TxManager) ExecTx(ctx context.Context, fn svsFn, opts ...*sql.TxOptions) error {
 	return t.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// 将tx句柄存入ctx中
+		// 将 tx 句柄存入 ctx 中
 		txCtx := withTx(ctx, tx)
 		return fn(txCtx)
 	}, opts...)

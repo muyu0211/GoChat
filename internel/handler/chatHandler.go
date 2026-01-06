@@ -18,10 +18,11 @@ import (
  */
 
 type ChatHandler struct {
-	chatService service.IChatService
-	userService service.IUserService
-	syncService service.ISyncService
-	pushService service.IPushService
+	chatService  service.IChatService
+	userService  service.IUserService
+	syncService  service.ISyncService
+	pushService  service.IPushService
+	groupService service.IGroupService
 }
 
 var upgrader = websocket.Upgrader{
@@ -30,12 +31,13 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true }, // 允许跨域
 }
 
-func NewChatHandler(cs service.IChatService, us service.IUserService, ss service.ISyncService, ps service.IPushService) *ChatHandler {
+func NewChatHandler(cs service.IChatService, us service.IUserService, ss service.ISyncService, ps service.IPushService, gs service.IGroupService) *ChatHandler {
 	return &ChatHandler{
-		chatService: cs,
-		userService: us,
-		syncService: ss,
-		pushService: ps,
+		chatService:  cs,
+		userService:  us,
+		syncService:  ss,
+		pushService:  ps,
+		groupService: gs,
 	}
 }
 
@@ -64,9 +66,10 @@ func (ch *ChatHandler) Connect(c *gin.Context) {
 
 	// 获取 client 实例对象
 	wsRouter := ws.NewWsRouter()
-	wsRouter.Register(ws.CmdChat, ch.chatService.HandleChatMsg)
+	wsRouter.Register(ws.CmdSingleChat, ch.chatService.HandleSingleChatMsg)
 	wsRouter.Register(ws.CmdAck, ch.chatService.HandleAckMsg)
 	wsRouter.Register(ws.CmdRevoke, ch.chatService.HandleRevokeMsg)
+	wsRouter.Register(ws.CmdGroupChat, ch.chatService.HandleGroupChatMsg)
 
 	client := ws.NewClient(conn, userID, wsRouter, func(userID uint64) {
 		_ = ch.userService.UserOffline(c, userID)

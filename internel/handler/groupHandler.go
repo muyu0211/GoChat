@@ -30,7 +30,13 @@ func (gh *GroupHandler) CreateGroup(c *gin.Context) {
 	var ctx = c.Request.Context()
 	var resp *dto.CreateGroupResp
 	var err error
+
+	if req.Members == nil || len(req.Members) == 0 {
+		req.Members = []uint64{req.OwnerID}
+	}
+
 	if resp, err = gh.groupService.NewGroup(ctx, &req); err != nil {
+		c.JSON(http.StatusServiceUnavailable, util.NewResMsg("0", "服务器繁忙，请稍后重试", nil))
 		return
 	}
 	c.JSON(http.StatusOK, util.NewResMsg("1", "创建群组成功", resp))

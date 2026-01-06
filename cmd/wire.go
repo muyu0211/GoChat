@@ -58,6 +58,7 @@ var repositorySet = wire.NewSet(
 	repository.NewChatRepo,
 	repository.NewConvRepo,
 	repository.NewGroupRepo,
+	repository.NewGroupMsgRepo,
 )
 
 var cacheSet = wire.NewSet(cache.NewRedisCache)

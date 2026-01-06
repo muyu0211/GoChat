@@ -30,6 +30,21 @@ func SafeGo(fn func()) {
 	}()
 }
 
+func SafeGoWithArgs(fn func(args ...interface{}), args ...interface{}) {
+	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				// 记录报错日志
+				zap.L().Error("goroutine panic",
+					zap.Any("error", err),
+					zap.Stack("stack"),
+				)
+			}
+		}()
+		fn(args...)
+	}()
+}
+
 func Retry(maxTimes int, interval time.Duration, fn func() error) error {
 	var err error
 	for i := 0; i < maxTimes; i++ {

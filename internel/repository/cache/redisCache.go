@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"GoChat/pkg/util"
 	"context"
 	"encoding/json"
 	"errors"
@@ -27,11 +28,13 @@ type ICacheRepository interface {
 	Subscribe(ctx context.Context, channel string) *redis.PubSub
 	ZAdd(ctx context.Context, key string, score float64, member []byte, expire time.Duration) error
 	ZRange(ctx context.Context, key string, start uint64, limit int64) ([][]byte, bool, error)
-	HSet(ctx context.Context, key string, fields ...map[string]interface{}) error
+	HSet(ctx context.Context, key string, TTL time.Duration, fields map[string]interface{}) error
+	HGet(ctx context.Context, key string, field string) (string, error)
+	HGetAll(ctx context.Context, key string) (map[string]string, error)
 	HMGet(ctx context.Context, key string, fields ...string) ([]interface{}, error)
-	SAdd(ctx context.Context, key string, expire time.Duration, members ...interface{}) error
+	SAdd(ctx context.Context, key string, expire time.Duration, members interface{}) error
 	SMembers(ctx context.Context, key string) ([]string, error)
-	SRem(ctx context.Context, key string, members ...interface{}) error
+	SRem(ctx context.Context, key string, members interface{}) error
 	SMembersWithCheck(ctx context.Context, key string) ([]string, bool, error)
 	ZRemRange(ctx context.Context, key string, score interface{}) error
 
@@ -190,14 +193,26 @@ func (rc *RedisCache) ZRange(ctx context.Context, key string, start uint64, limi
 	return res, true, nil
 }
 
-func (rc *RedisCache) HSet(ctx context.Context, key string, fields ...map[string]interface{}) error {
-	_, err := rc.rdb.HSet(ctx, key, fields).Result()
-	if err != nil {
-		return err
+func (rc *RedisCache) HSet(ctx context.Context, key string, TTL time.Duration, fields map[string]interface{}) error {
+	pipe := rc.rdb.Pipeline()
+	pipe.HSet(ctx, key, fields)
+	if TTL != 0 {
+		pipe.Expire(ctx, key, TTL)
 	}
-	return nil
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
+func (rc *RedisCache) HGet(ctx context.Context, key string, field string) (string, error) {
+	result, err := rc.rdb.HGet(ctx, key, field).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return "", nil
+		}
+		return "", err
+	}
+	return result, err
+}
 func (rc *RedisCache) HMGet(ctx context.Context, key string, fields ...string) ([]interface{}, error) {
 	result, err := rc.rdb.HMGet(ctx, key, fields...).Result()
 	if err != nil {
@@ -206,16 +221,23 @@ func (rc *RedisCache) HMGet(ctx context.Context, key string, fields ...string) (
 	return result, err
 }
 
-func (rc *RedisCache) SAdd(ctx context.Context, key string, expire time.Duration, members ...interface{}) error {
-	if _, err := rc.rdb.SAdd(ctx, key, members...).Result(); err != nil {
-		return err
+func (rc *RedisCache) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	result, err := rc.rdb.HGetAll(ctx, key).Result()
+	if err != nil {
+		zap.L().Error("cache get error", zap.Error(err), zap.String("key", key))
 	}
+	return result, err
+}
+
+func (rc *RedisCache) SAdd(ctx context.Context, key string, expire time.Duration, members interface{}) error {
+	args := util.SliceToIfaceSlice(members)
+	pipe := rc.rdb.Pipeline()
+	pipe.SAdd(ctx, key, args)
 	if expire != 0 {
-		if _, err := rc.rdb.Expire(ctx, key, expire).Result(); err != nil {
-			return err
-		}
+		pipe.Expire(ctx, key, expire)
 	}
-	return nil
+	_, err := pipe.Exec(ctx)
+	return err
 }
 
 func (rc *RedisCache) SMembers(ctx context.Context, key string) ([]string, error) {
@@ -230,8 +252,9 @@ func (rc *RedisCache) SMembers(ctx context.Context, key string) ([]string, error
 }
 
 // SRem 删除集合元素
-func (rc *RedisCache) SRem(ctx context.Context, key string, members ...interface{}) error {
-	_, err := rc.rdb.SRem(ctx, key, members...).Result()
+func (rc *RedisCache) SRem(ctx context.Context, key string, members interface{}) error {
+	args := util.SliceToIfaceSlice(members)
+	_, err := rc.rdb.SRem(ctx, key, args).Result()
 	if err != nil {
 		return err
 	}

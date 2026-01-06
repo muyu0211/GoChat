@@ -56,6 +56,8 @@ func JWTMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		// TODO: 用户发起请求后刷新 token 有效期
+
 		// 将当前请求的 userID 信息保存到请求的上下文 c
 		c.Set(util.CtxUserIDKey, claims.UserID)
 		c.Set(util.CtxEmailKey, claims.Email)

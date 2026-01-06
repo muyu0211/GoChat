@@ -65,7 +65,7 @@ func (sf *SeqFactoryService) CheckAndSetDedupWithSeq(
 	dupExpire time.Duration) (duplicated bool, seq uint64, err error) {
 
 	dupKey := util.GetRedisDupKey(conversationID, clientMsgID)
-	seqKey := util.GetRedisSeqKey(conversationID)
+	seqKey := util.GetRedisChatSeqKey(conversationID)
 
 	// 1. 执行去重和取号
 	ret, err := sf.chatCache.DedupAndSeq(ctx, []string{dupKey, seqKey}, dupExpire)
@@ -87,6 +87,7 @@ func (sf *SeqFactoryService) CheckAndSetDedupWithSeq(
 	}
 }
 
+// initSeqIfNeeded 初始化会话的seqID
 func (sf *SeqFactoryService) initSeqIfNeeded(
 	ctx context.Context,
 	userID uint64,

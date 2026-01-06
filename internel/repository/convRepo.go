@@ -6,15 +6,18 @@ import (
 	"GoChat/pkg/util"
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 type IConvRepo interface {
 	IBaseRepository[dao.ConversationModel]
+	CreateConvBatch(ctx context.Context, entities []dao.ConversationModel, batchSize int) error
 	GetConvByUserID(ctx context.Context, userID uint64) ([]dao.ConversationModel, error)
 	GetConvByConvID(ctx context.Context, conversationID string) (*dao.ConversationModel, error)
 	GetConvByUserIDConvID(ctx context.Context, userID uint64, conversationIDs []string) ([]dao.ConversationModel, error)
@@ -23,6 +26,7 @@ type IConvRepo interface {
 	BulkUpdateLastAck(ctx context.Context, updates []*dto.UpdatesAck) error
 	UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, createdAt time.Time) error
 	UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, createdAt time.Time) error
+	UpdateGroupConversations(ctx context.Context, groupKeyID string, memberIDs []uint64, newSeq uint64, senderID uint64) error
 }
 
 type ConvRepo struct {
@@ -55,6 +59,14 @@ func (r *ConvRepo) Update(ctx context.Context, entity *dao.ConversationModel) er
 }
 func (r *ConvRepo) List(ctx context.Context, params QueryParams) ([]dao.ConversationModel, int64, error) {
 	return nil, 0, nil
+}
+
+func (r *ConvRepo) CreateConvBatch(ctx context.Context, entities []dao.ConversationModel, batchSize int) error {
+	db := r.getTx(ctx).WithContext(ctx)
+	if err := db.Model(&dao.ConversationModel{}).CreateInBatches(entities, batchSize).Error; err != nil {
+		return err
+	}
+	return nil
 }
 
 // GetConvByUserID 根据UserID获取该用户的所有会话
@@ -126,7 +138,6 @@ func (r *ConvRepo) UpdateLastAck(ctx context.Context, userID uint64, conversatio
 func (r *ConvRepo) BulkUpdateLastAck(ctx context.Context, updates []*dto.UpdatesAck) error {
 	db := r.getTx(ctx)
 	// 拼接sql
-
 	var sql strings.Builder
 	args := make([]interface{}, 0, 5*len(updates))
 	sql.WriteString("UPDATE conversation SET last_ack_id = CASE")
@@ -193,4 +204,31 @@ func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, rec
 		UnreadCount:    1,
 		UpdatedAt:      updatedAt,
 	}).Error
+}
+
+func (r *ConvRepo) UpdateGroupConversations(ctx context.Context, groupKeyID int64, memberIDs []uint64, newSeq uint64, senderID uint64) error {
+	// 1. 更新所有接收者 (Unread + 1)
+	db := r.getTx(ctx).WithContext(ctx)
+	err := db.Model(&dao.ConversationModel{}).
+		Where("conversation_id = ? AND owner_id IN (?) AND owner_id != ?", strconv.FormatInt(groupKeyID, 10), memberIDs, senderID).
+		Updates(map[string]interface{}{
+			"last_seq_id":  newSeq,
+			"updated_at":   time.Now(),
+			"unread_count": gorm.Expr("unread_count + 1"),
+		}).Error
+
+	// 2. 更新发送者 (Unread 不变, LastAck 追平)
+	db.Model(&dao.ConversationModel{}).
+		Where("conversation_id = ? AND owner_id = ?", strconv.FormatInt(groupKeyID, 10), senderID).
+		Updates(map[string]interface{}{
+			"last_seq_id": newSeq,
+			"last_ack_id": newSeq,
+			"updated_at":  time.Now(),
+		})
+
+	if err != nil {
+		zap.L().Error("更新 conversation 信息失败", zap.Error(err), zap.Int64("groupKeyID", groupKeyID))
+	}
+
+	return err
 }

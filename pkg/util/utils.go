@@ -225,6 +225,6 @@ func InitIDGenerator() {
 	})
 }
 
-func GenSnowflakeID() uint64 {
-	return uint64(node.Generate().Int64())
+func GenSnowflakeID() int64 {
+	return node.Generate().Int64()
 }

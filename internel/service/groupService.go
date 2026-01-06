@@ -5,9 +5,11 @@ import (
 	"GoChat/internel/model/dto"
 	"GoChat/internel/repository"
 	"GoChat/internel/repository/cache"
+	ws "GoChat/internel/websocket"
 	"GoChat/pkg/util"
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"time"
 
@@ -19,22 +21,27 @@ type IGroupService interface {
 }
 
 type GroupService struct {
-	seqFactory *SeqFactoryService
 	redisCache *cache.RedisCache
 	groupRepo  *repository.GroupRepo
 	convRepo   *repository.ConvRepo
+
+	seqFactory  *SeqFactoryService
+	pushService *PushService
+	tx          *TxManager
 
 	// 存放群 id 的缓存池
 	groupIdPool chan uint64
 	poolLock    sync.RWMutex
 }
 
-func NewGroupService(rc *cache.RedisCache, sf *SeqFactoryService, cr *repository.ConvRepo, gp *repository.GroupRepo) *GroupService {
+func NewGroupService(rc *cache.RedisCache, cr *repository.ConvRepo, gp *repository.GroupRepo, sf *SeqFactoryService, ps *PushService, tx *TxManager) *GroupService {
 	gs := &GroupService{
-		convRepo:   cr,
-		redisCache: rc,
-		seqFactory: sf,
-		groupRepo:  gp,
+		convRepo:    cr,
+		redisCache:  rc,
+		groupRepo:   gp,
+		seqFactory:  sf,
+		pushService: ps,
+		tx:          tx,
 	}
 	gs.groupIdPool = make(chan uint64, 1000)
 	return gs
@@ -51,32 +58,108 @@ func (gs *GroupService) NewGroup(ctx context.Context, g *dto.CreateGroupReq) (*d
 	// 2. 雪花算法生成主键id
 	pID := util.GenSnowflakeID()
 
-	// 3. 创建群组
-	group := &dao.GroupModel{
-		ID:           pID,
-		GroupID:      gID,
-		Name:         g.Name,
-		Avatar:       g.Avatar,
-		OwnerID:      g.OwnerID,
-		Type:         0,
-		MaxMembers:   util.GroupDefaultMemNum,
-		IsMuteAll:    false,
-		JoinType:     0,
-		Notification: "",
-		Status:       0,
-		CreatedAt:    time.Time{},
-		UpdatedAt:    time.Time{},
+	// 3. 对群成员去重
+	memMap := make(map[uint64]byte)
+	for _, mem := range g.Members {
+		if g.OwnerID == mem {
+			memMap[mem] = 2
+			continue
+		}
+		memMap[mem] = 1
 	}
-	if err := gs.groupRepo.Create(ctx, group); err != nil {
+
+	/**
+	TODO: 优化方向：先往redis中缓存要创建的群聊：key=主键id-群id, value=set(群成员id)
+		  开启异步线程进行数据库的创建工作
+	*/
+
+	// 开启事务
+	err = gs.tx.ExecTx(ctx, func(ctx context.Context) error {
+		// 3. 创建群组
+		if err := gs.groupRepo.Create(ctx, &dao.GroupModel{
+			ID:         pID,
+			GroupID:    gID,
+			Name:       g.Name,
+			Avatar:     g.Avatar,
+			OwnerID:    g.OwnerID, // 群主 ID
+			Type:       1,
+			MaxMembers: util.GroupDefaultMemNum,
+		}); err != nil {
+			return err
+		}
+
+		// 4. 创建群成员（group_member中批量插入)
+		members := make([]dao.GroupMemberModel, 0, len(memMap))
+		for memID, role := range memMap {
+			members = append(members, dao.GroupMemberModel{
+				GroupKeyID: pID,
+				GroupID:    gID,
+				UserID:     memID,
+				Role:       role,
+			})
+		}
+		if err := gs.groupRepo.CreateMemberBatch(ctx, members, 100); err != nil {
+			return err
+		}
+
+		// 5. 为所有群成员创建会话conversation（conversation表中批量插入）
+		convs := make([]dao.ConversationModel, 0, len(memMap))
+		for memID, _ := range memMap {
+			convs = append(convs, dao.ConversationModel{
+				ConversationID: strconv.FormatInt(pID, 10), // 使用群组的主键 ID作为会话 ID
+				OwnerID:        memID,
+			})
+		}
+		if err := gs.convRepo.CreateConvBatch(ctx, convs, 100); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	// 事务执行出错，进行回滚后返回
+	if err != nil {
 		zap.L().Error("Failed to create group", zap.Error(err))
 		return nil, err
 	}
 
-	// 4. 创建群组会话
+	// 5. 刚创建的群作为热数据放入redis中 (key=group_id, value=Hash(群成员id-是否被禁言))
+	groupIDKey := util.GetRedisGroupIDKey(gID)
+	memRedisPayload := make(map[string]interface{}, len(memMap))
+	for memID, _ := range memMap {
+		memRedisPayload[strconv.FormatUint(memID, 10)] = "0" // 群刚被创建时，没有人被禁言
+	}
+	if err := gs.redisCache.HSet(ctx, groupIDKey, util.RedisGroupIDExpire, memRedisPayload); err != nil {
+		zap.L().Error("Failed to add group member to redis", zap.Error(err))
+	}
 
-	// 5. 刚创建的群作为热数据放入redis中
+	// 6. 异步将创建群聊成功的消息push给每个群成员（Push 接口）
+	gs.pushGroupCreateEvent(gID, memMap)
+	return &dto.CreateGroupResp{GroupKeyID: pID, GroupID: gID}, nil
+}
 
-	return nil, nil
+func (gs *GroupService) pushGroupCreateEvent(groupID uint64, members map[uint64]byte) {
+	pushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+	var wg sync.WaitGroup
+
+	for memberID, _ := range members {
+		wg.Add(1)
+		util.SafeGoWithArgs(func(args ...interface{}) {
+			defer wg.Done()
+			memberID = args[0].(uint64)
+			pushPayLoad := &ws.ReplyMsg{
+				Cmd:        ws.CmdNotice,
+				Content:    "群创建成功",
+				ReceiverID: memberID,
+			}
+			_ = gs.pushService.Push(pushCtx, pushPayLoad)
+		}, memberID)
+	}
+	util.SafeGo(func() {
+		wg.Wait()
+		cancel()
+	})
 }
 
 func (gs *GroupService) genGroupID(ctx context.Context) (uint64, error) {
@@ -115,7 +198,7 @@ func (gs *GroupService) fillGroupIDPool(ctx context.Context) error {
 	}
 
 	// 2. 从redis 中获取群id号段
-	groupIDKey := util.GetRedisGroupIdKey()
+	groupIDKey := util.GetRedisGroupIDOffsetKey()
 	var step int64 = 800 // 一次最多取 900 个号
 	// 3. 取出群id号段
 	groupMaxID, err := gs.redisCache.IncrBy(ctx, groupIDKey, step)

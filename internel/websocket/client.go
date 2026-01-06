@@ -131,7 +131,6 @@ func (c *Client) ReadPump() {
 
 	// 3. 设置 Pong 处理器
 	c.conn.SetPongHandler(func(appData string) error {
-		log.Println("续命 appData: ", appData)
 		err = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 		if err != nil {
 			zap.L().Error("设置读超时失败", zap.Error(err))
@@ -177,6 +176,8 @@ func (c *Client) ReadPump() {
 				zap.String("cmd", req.Cmd),
 				zap.Error(err),
 			)
+
+			// TODO: 失败则给客户端发送错误信息
 		}
 	}
 }

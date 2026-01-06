@@ -16,7 +16,7 @@ import (
 )
 
 type IPushService interface {
-	Push(context.Context, *ws.ReplyMsg) error
+	Push(context.Context, ws.Msg) error
 	Publish(context.Context, uint64, string, []byte) error
 	Subscribe(context.Context, string)
 }
@@ -40,8 +40,8 @@ func NewPushService(rc *cache.RedisCache, us *UserService) *PushService {
 }
 
 // Push 推送服务: 将消息推送给接收方
-func (ps *PushService) Push(ctx context.Context, msg *ws.ReplyMsg) error {
-	receiverID := msg.ReceiverID
+func (ps *PushService) Push(ctx context.Context, msg ws.Msg) error {
+	receiverID := msg.GetReceiverID()
 	// 1. 查询接收方在哪一台服务器
 	serveID, err := ps.userService.GetUserLocation(ctx, receiverID)
 	if errors.Is(err, redis.Nil) {
@@ -86,18 +86,18 @@ func (ps *PushService) pushLocal(ctx context.Context, userID uint64, msg []byte)
 }
 
 // saveOffline 保存离线消息
-func (ps *PushService) saveOffline(ctx context.Context, msg *ws.ReplyMsg) error {
+func (ps *PushService) saveOffline(ctx context.Context, msg ws.Msg) error {
 	zAddCtx, cancel := context.WithTimeout(ctx, util.RedisZAddTimeout)
 	defer cancel()
 
 	// key设计： fmt.Sprintf("im:box:%s:%s", receiverID, msg.ConversationID)
-	offlineMsgBoxKey := util.GetRedisBoxKey(msg.ReceiverID, msg.ConversationID)
+	offlineMsgBoxKey := util.GetRedisBoxKey(msg.GetReceiverID(), msg.GetConversationID())
 	msgByte, err := msg.Serialize()
 	if err != nil {
 		zap.L().Error("序列化消息失败", zap.Error(err))
 		return ErrMarshalJSON
 	}
-	if err = ps.redisCache.ZAdd(zAddCtx, offlineMsgBoxKey, float64(msg.SeqID), msgByte, util.RedisOfflineExpire); err != nil {
+	if err = ps.redisCache.ZAdd(zAddCtx, offlineMsgBoxKey, float64(msg.GetSeqID()), msgByte, util.RedisOfflineExpire); err != nil {
 		zap.L().Error("保存离线消息出错：", zap.Error(err))
 		return ErrServerNotAvailable
 	}

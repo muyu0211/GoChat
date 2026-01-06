@@ -186,7 +186,7 @@ func (ss *SyncService) SyncConverse(ctx context.Context, userID uint64, conversa
 
 		for _, msg := range dbMsgs {
 			replyMsgs = append(replyMsgs, ws.ReplyMsg{
-				Cmd:            ws.CmdChat,
+				Cmd:            ws.CmdSingleChat,
 				ConversationID: msg.ConversationID,
 				Content:        msg.Content,
 				SenderID:       msg.SenderID,

@@ -36,6 +36,7 @@ func InitializeApp() (*App, error) {
 	userService := service.NewUserService(userRepo, redisCache, txManager)
 	pushService := service.NewPushService(redisCache, userService)
 	chatRepo := repository.NewChatRepo(db)
+	groupMsgRepo := repository.NewGroupMsgRepo(db)
 	config := providerConfig()
 	ackProducer, err := providerKafkaACKProducer(config)
 	if err != nil {
@@ -45,12 +46,12 @@ func InitializeApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	chatService := service.NewChatService(seqFactoryService, pushService, chatRepo, convRepo, txManager, redisCache, ackProducer, ackConsumer)
+	chatService := service.NewChatService(seqFactoryService, pushService, chatRepo, convRepo, groupMsgRepo, txManager, redisCache, ackProducer, ackConsumer)
 	syncService := service.NewSyncService(redisCache, chatRepo, convRepo)
-	chatHandler := handler.NewChatHandler(chatService, userService, syncService, pushService)
-	userHandler := handler.NewUserHandler(userService)
 	groupRepo := repository.NewGroupRepo(db)
-	groupService := service.NewGroupService(redisCache, seqFactoryService, convRepo, groupRepo)
+	groupService := service.NewGroupService(redisCache, convRepo, groupRepo, seqFactoryService, pushService, txManager)
+	chatHandler := handler.NewChatHandler(chatService, userService, syncService, pushService, groupService)
+	userHandler := handler.NewUserHandler(userService)
 	groupHandler := handler.NewGroupHandler(groupService)
 	app := &App{
 		ChatHandler:  chatHandler,
@@ -102,7 +103,7 @@ var infrastructureSet = wire.NewSet(
 )
 
 // 定义 repository 集合
-var repositorySet = wire.NewSet(repository.NewUserRepo, repository.NewChatRepo, repository.NewConvRepo, repository.NewGroupRepo)
+var repositorySet = wire.NewSet(repository.NewUserRepo, repository.NewChatRepo, repository.NewConvRepo, repository.NewGroupRepo, repository.NewGroupMsgRepo)
 
 var cacheSet = wire.NewSet(cache.NewRedisCache)
 
