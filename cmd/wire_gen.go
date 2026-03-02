@@ -14,6 +14,7 @@ import (
 	"GoChat/internel/repository/cache"
 	"GoChat/internel/service"
 	"GoChat/pkg/db"
+	"context"
 	"github.com/go-redis/redis/v8"
 	"github.com/google/wire"
 	"gorm.io/gorm"
@@ -46,10 +47,18 @@ func InitializeApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	chatService := service.NewChatService(seqFactoryService, pushService, chatRepo, convRepo, groupMsgRepo, txManager, redisCache, ackProducer, ackConsumer)
+	chatService := service.NewChatService(seqFactoryService, pushService, userService, chatRepo, convRepo, groupMsgRepo, txManager, redisCache, ackProducer, ackConsumer)
 	syncService := service.NewSyncService(redisCache, chatRepo, convRepo)
 	groupRepo := repository.NewGroupRepo(db)
-	groupService := service.NewGroupService(redisCache, convRepo, groupRepo, seqFactoryService, pushService, txManager)
+	groupMsgProducer, err := providerKafkaGroupMessageProducer(config)
+	if err != nil {
+		return nil, err
+	}
+	groupMsgConsumer, err := providerKafkaGroupMessageConsumer(config)
+	if err != nil {
+		return nil, err
+	}
+	groupService := service.NewGroupService(redisCache, convRepo, groupRepo, groupMsgRepo, seqFactoryService, pushService, txManager, groupMsgProducer, groupMsgConsumer)
 	chatHandler := handler.NewChatHandler(chatService, userService, syncService, pushService, groupService)
 	userHandler := handler.NewUserHandler(userService)
 	groupHandler := handler.NewGroupHandler(groupService)
@@ -59,6 +68,7 @@ func InitializeApp() (*App, error) {
 		GroupHandler: groupHandler,
 		ChatService:  chatService,
 		PushService:  pushService,
+		GroupService: groupService,
 		AckConsumer:  ackConsumer,
 		AckProducer:  ackProducer,
 	}
@@ -66,6 +76,10 @@ func InitializeApp() (*App, error) {
 }
 
 // wire.go:
+
+func providerCtx() context.Context {
+	return context.Background()
+}
 
 func providerConfig() *config.Config {
 	return config.Cfg
@@ -93,6 +107,20 @@ func providerKafkaACKConsumer(cfg *config.Config) (*mq.AckConsumer, error) {
 	)
 }
 
+func providerKafkaGroupMessageProducer(cfg *config.Config) (*mq.GroupMsgProducer, error) {
+	return mq.NewGroupMsgProducer(
+		cfg.KafkaConfig.Brokers,
+		&cfg.KafkaConfig.GroupMsgConfig,
+	)
+}
+
+func providerKafkaGroupMessageConsumer(cfg *config.Config) (*mq.GroupMsgConsumer, error) {
+	return mq.NewGroupMsgConsumer(
+		cfg.KafkaConfig.Brokers,
+		&cfg.KafkaConfig.GroupMsgConfig,
+	)
+}
+
 // 定义 infrastructure 集合
 var infrastructureSet = wire.NewSet(
 	providerConfig,
@@ -100,6 +128,8 @@ var infrastructureSet = wire.NewSet(
 	providerRDB,
 	providerKafkaACKProducer,
 	providerKafkaACKConsumer,
+	providerKafkaGroupMessageConsumer,
+	providerKafkaGroupMessageProducer,
 )
 
 // 定义 repository 集合

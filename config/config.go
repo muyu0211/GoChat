@@ -8,13 +8,14 @@ import (
 )
 
 type Config struct {
-	BasicConfig  `mapstructure:"app"`
-	RedisConfig  `mapstructure:"redis"`
-	MySQLConfig  `mapstructure:"mysql"`
-	KafkaConfig  `mapstructure:"kafka"`
-	LoggerConfig `mapstructure:"logger"`
-	JWTConfig    `mapstructure:"jwt"`
-	AntsConfig   `mapstructure:"ants"`
+	BasicConfig      `mapstructure:"app"`
+	RedisConfig      `mapstructure:"redis"`
+	MySQLConfig      `mapstructure:"mysql"`
+	KafkaConfig      `mapstructure:"kafka"`
+	LoggerConfig     `mapstructure:"logger"`
+	GormLoggerConfig `mapstructure:"gorm_logger"`
+	JWTConfig        `mapstructure:"jwt"`
+	AntsConfig       `mapstructure:"ants"`
 }
 
 type BasicConfig struct {
@@ -25,12 +26,11 @@ type BasicConfig struct {
 }
 
 type MySQLConfig struct {
-	Master          DBConfig      `mapstructure:"master"`
-	Slave           DBConfig      `mapstructure:"slave"`
-	MaxOpenConns    int           `mapstructure:"max_open_conns"`
-	MaxIdleConns    int           `mapstructure:"max_idle_conns"`
-	ConnMaxLifetime int           `mapstructure:"conn_max_lifetime"`
-	SlowThreshold   time.Duration `mapstructure:"slow_threshold"`
+	Master          DBConfig `mapstructure:"master"`
+	Slave           DBConfig `mapstructure:"slave"`
+	MaxOpenConns    int      `mapstructure:"max_open_conns"`
+	MaxIdleConns    int      `mapstructure:"max_idle_conns"`
+	ConnMaxLifetime int      `mapstructure:"conn_max_lifetime"`
 }
 
 type DBConfig struct {
@@ -58,6 +58,23 @@ type LoggerConfig struct {
 	Compress   bool   `mapstructure:"compress"`
 }
 
+type GormLoggerConfig struct {
+	Filename      string        `mapstructure:"filename"`       // 日志文件名称
+	SlowThreshold time.Duration `mapstructure:"slow_threshold"` // 慢查询阈值
+	MaxSize       int           `mapstructure:"max_size"`       // 日志文件最大大小
+	MaxAge        int           `mapstructure:"max_age"`        // 日志文件最大年龄
+	MaxBackups    int           `mapstructure:"max_backups"`    // 最多保留的备份文件数
+	Compress      bool          `mapstructure:"compress"`       // 是否压缩备份文件
+}
+
+type KafkaLoggerConfig struct {
+	Filename   string `mapstructure:"filename"`    // 日志文件名称
+	MaxSize    int    `mapstructure:"max_size"`    // 日志文件最大大小
+	MaxAge     int    `mapstructure:"max_age"`     // 日志文件最大年龄
+	MaxBackups int    `mapstructure:"max_backups"` // 最多保留的备份文件数
+	Compress   bool   `mapstructure:"compress"`    // 是否压缩备份文件
+}
+
 type JWTConfig struct {
 	JwtSecret   string `mapstructure:"secret"`       // jwt密钥
 	ExpireHours int    `mapstructure:"expire_hours"` // token过期时间
@@ -76,7 +93,7 @@ var Cfg *Config
 func LoadConfig() *Config {
 	// 使用viper读取配置文件，进行项目初始化
 	// ./config.config.yml
-	viper.SetConfigFile("./config/config.yml")
+	viper.SetConfigFile("../config/config.yml")
 	if err := viper.ReadInConfig(); err != nil {
 		panic(fmt.Errorf("fatal error config file: %w", err))
 	}

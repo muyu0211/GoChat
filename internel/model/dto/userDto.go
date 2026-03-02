@@ -10,6 +10,7 @@ type RegisterRequest struct {
 	EmailOrPhone string `json:"email_or_phone" form:"email_or_phone" `
 	Password     string `json:"password" form:"password" binding:"omitempty"`
 	VerifyCode   string `json:"verify_code" form:"verify_code" binding:"omitempty"`
+	State        byte   `json:"state" form:"state" binding:"omitempty"`
 }
 
 type LoginRequest struct {

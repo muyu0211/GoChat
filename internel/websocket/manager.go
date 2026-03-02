@@ -86,6 +86,7 @@ func (m *ClientManager) Unregister(userID uint64) {
 		delete(bucket.Clients, userID)
 	}
 	log.Printf("用户：%d 下线", userID)
+	// TODO：删除redis中用户的服务器位置缓存
 }
 
 // GetClient 获取连接
@@ -96,7 +97,7 @@ func (m *ClientManager) GetClient(userID uint64) *Client {
 	return bucket.Clients[userID]
 }
 
-// GetAllClient 获取所有连接 TODO：测试使用
+// GetAllClient 获取所有连接 NOTICE: 测试使用
 func (m *ClientManager) GetAllClient() []uint64 {
 	var wg sync.WaitGroup
 	var l sync.Mutex

@@ -8,6 +8,7 @@ import (
 	"hash/fnv"
 	"math/rand"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +64,16 @@ func GenVerificationCode(length int) string {
 
 // SendEmail 发送邮件
 func SendEmail(ctx context.Context, mailTmp string, emailTargetAddress ...string) <-chan pair {
+	// TODO: 测试场景
+	if true {
+		errChan := make(chan pair, 1)
+		errChan <- pair{
+			Email: emailTargetAddress[0],
+			Err:   nil,
+		}
+		return errChan
+	}
+
 	if len(emailTargetAddress) == 0 {
 		errChan := make(chan pair, 1)
 		defer close(errChan)
@@ -227,4 +238,14 @@ func InitIDGenerator() {
 
 func GenSnowflakeID() int64 {
 	return node.Generate().Int64()
+}
+
+func Uniq[T comparable](slice []T) []T {
+	var uniq []T
+	for _, v := range slice {
+		if !slices.Contains(uniq, v) {
+			uniq = append(uniq, v)
+		}
+	}
+	return uniq
 }

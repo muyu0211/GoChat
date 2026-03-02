@@ -6,32 +6,31 @@ app:
 
 mysql:
   master:
-    #    host: "172.21.96.1"
-    host: "192.168.44.129"
-    port: "3306"
+    host: "192.168.74.128"
+    port: "3307"
     user: "root"
     password: "021103"
     dbname: "ginchat"
   slave:
-    host: "192.168.44.129"
+    host: "192.168.74.128"
     port: "3308"
     user: "root"
     password: "021103"
     dbname: "ginchat_test"
     # 连接池配置
-  max_open_conns: 200    # 最大打开的连接数
+  max_open_conns: 150    # 最大打开的连接数
   max_idle_conns: 10     # 最大空闲连接数
-  conn_max_lifetime: 3600 # 连接可复用的最大时间 (秒)
+  conn_max_lifetime: 180 # 连接可复用的最大时间 (秒)
 
 redis:
-  host: "192.168.44.129"
+  host: "192.168.74.128"
   port: "6380"
   password: "021103"
   db: 0
   pool_size: 100 # 连接池大小
   
 kafka:
-  brokers: ["192.168.44.129:9094"]      # Kafka broker地址（多个用数组）
+  brokers: ["192.168.74.128:9094"]      # Kafka broker地址（多个用数组）
   ack:
     topic: "im_ack_events"
     group_id: "im_ack_group_01"
@@ -47,6 +46,22 @@ kafka:
       commit_interval: 1s        # 自动提交 Offset 的频率
       workers: 4                 # 并行处理协程数，建议设为 CPU 核心数的 1-2 倍
       start_offset: -2
+  group_msg:
+    topic: "im_group_msg_events"
+    group_id: "im_group_msg_group_01"
+    producer: # 生产者调优：侧重吞吐量
+      batch_size: 100            # 内存攒够 100 条消息才发往 Kafka
+      batch_timeout: 100ms       # 或者距离上次发送过了 100ms 也发，保证实时性
+      write_timeout: 5s          # 写入 Kafka 的网络超时
+      compression: "snappy"      # 推荐 snappy，压缩率和 CPU 损耗最平衡，适合 JSON
+    consumer: # 消费者调优：侧重批量处理能力
+      min_bytes: 1               # 10KB。Broker 攒够 10KB 数据才推给消费者，减少网络 IO； 测试场景修改为1，防止消费端长时间阻塞
+      max_wait: 250ms            # Broker 最多等待多久，即使没达到min_bytes也会推送消息（500ms)
+      max_bytes: 10485760        # 10MB。单次拉取最大数据量，防止 OOM
+      commit_interval: 1s        # 自动提交 Offset 的频率
+      workers: 4                 # 并行处理协程数，建议设为 CPU 核心数的 1-2 倍
+      start_offset: -2
+
 
 # 鉴权配置
 jwt:
@@ -78,12 +93,27 @@ rate_limit:
 # 日志配置
 logger:
   level: "debug"            # 日志级别
-  filename: "./logs/app.log" # 日志文件路径
+  filename: "../logs/app.log" # 日志文件路径
   max_size: 200             # 日志文件大小上限 (MB)
   max_age: 30               # 日志文件保留天数
   max_backups: 7            # 最多保留的备份文件数
   compress: true            # 是否压缩备份文件
-  
+
+gorm_logger:
+  filename: "../logs/gorm.log" # 日志文件名称
+  slow_threshold: 100ms # 慢查询阈值
+  max_size: 200             # 日志文件大小上限 (MB)
+  max_age: 30               # 日志文件保留天数
+  max_backups: 7            # 最多保留的备份文件数
+  compress: true            # 是否压缩备份文件
+
+kafka_logger:
+  filename: "../logs/kafka.log" # 日志文件名称
+  max_size: 200             # 日志文件大小上限 (MB)
+  max_age: 30               # 日志文件保留天数
+  max_backups: 7            # 最多保留的备份文件数
+  compress: true            # 是否压缩备份文件  
+
 ants: 
   pool_size: 100
   max_capacity: 1000

@@ -51,8 +51,8 @@ func (ch *ChatHandler) Connect(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, util.NewResMsg("0", "登录已过期", nil))
 		return
 	}
-	if userID, ok = v.(uint64); ok != true {
-		c.JSON(http.StatusInternalServerError, util.NewResMsg("0", "登录已过期", nil))
+	if userID, ok = v.(uint64); !ok {
+		c.JSON(http.StatusInternalServerError, util.NewResMsg("0", "用户ID获取失败", nil))
 		return
 	}
 
@@ -84,10 +84,10 @@ func (ch *ChatHandler) Connect(c *gin.Context) {
 	// 注册 client
 	ws.Manager.Register(client, userID)
 	util.SafeGo(func() {
-		client.ReadPump()
+		client.ReadPump() // 读协程
 	})
 	util.SafeGo(func() {
-		client.WritePump()
+		client.WritePump() // 写协程
 	})
 	util.SafeGo(func() {
 		// 用户上线后进行消息同步

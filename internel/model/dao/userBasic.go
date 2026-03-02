@@ -10,10 +10,10 @@ import (
 type UserState byte
 
 const (
-	Admin UserState = iota
-	UserStateActive
+	UserStateActive UserState = iota
 	UserStateBanned
 	UserStateDeleted
+	Admin
 )
 
 type UserBasicModel struct {
@@ -24,7 +24,7 @@ type UserBasicModel struct {
 	Nickname       string         `gorm:"type:varchar(50);default:'';comment:昵称"`
 	Age            uint8          `gorm:"type:tinyint unsigned;default:18;comment:年龄（0-255）"`
 	Gender         uint8          `gorm:"type:tinyint;default:0;comment:性别（0-未知，1-男，2-女）"`
-	State          UserState      `gorm:"type:tinyint;default:1;comment:状态（0-管理员，1-正常，2-禁用）"`
+	State          UserState      `gorm:"type:tinyint;comment:状态（0-管理员，1-正常，2-禁用）"`
 	Avatar         string         `gorm:"type:varchar(255);default:'';comment:头像URL"`
 	CreatedAt      time.Time      `gorm:"type:datetime;comment:创建时间"`
 	UpdatedAt      time.Time      `gorm:"type:datetime;comment:更新时间"`

@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	_ "net/http/pprof"
 	"os/signal"
@@ -30,15 +31,16 @@ type App struct {
 	GroupHandler *handler.GroupHandler
 	ChatService  service.IChatService
 	PushService  service.IPushService
+	GroupService service.IGroupService
 	AckConsumer  *mq.AckConsumer
 	AckProducer  *mq.AckProducer
 }
 
 func main() {
-	// 启动一个独立的 goroutine 监听 pprof 端口
-	//go func() {
-	//	log.Println(http.ListenAndServe("localhost:6060", nil))
-	//}()
+	//启动一个独立的 goroutine 监听 pprof 端口
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 
 	// 初始化配置文件
 	cfg := config.LoadConfig()
@@ -95,14 +97,6 @@ func main() {
 				debug.FreeOSMemory()
 			}
 		}
-	})
-	// 启动 redis 订阅
-	util.SafeGo(func() {
-		app.PushService.Subscribe(context.Background(), util.GetRedisPubSubChannel())
-	})
-	// 启动消费者监听
-	util.SafeGo(func() {
-		app.ChatService.Run(context.Background())
 	})
 
 	// 阻塞等待服务关闭信号

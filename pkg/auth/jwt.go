@@ -7,17 +7,18 @@ package auth
 import (
 	"GoChat/config"
 	"errors"
-	"github.com/golang-jwt/jwt/v5"
-	"go.uber.org/zap"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
 )
 
 type CustomClaims struct {
 	UserID uint64 `json:"user_id"`
 	Email  string `json:"email"`
 	Phone  string `json:"phone"`
-	Role   string `json:"role"` // 例如 "admin", "user"
+	State  byte   `json:"state"` // 例如 "admin", "user"
 	jwt.RegisteredClaims
 }
 
@@ -46,7 +47,7 @@ func initJWT() error {
 	return nil
 }
 
-func GenerateToken(UserID uint64, emailPtr, phonePtr *string, role string) (string, error) {
+func GenerateToken(UserID uint64, emailPtr, phonePtr *string, state byte) (string, error) {
 	email, phone := "", ""
 	if emailPtr != nil {
 		email = *emailPtr
@@ -58,7 +59,7 @@ func GenerateToken(UserID uint64, emailPtr, phonePtr *string, role string) (stri
 		UserID: UserID,
 		Email:  email,
 		Phone:  phone,
-		Role:   role,
+		State:  state,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour * time.Duration(jwtConfig.ExpireHours))),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -68,11 +69,12 @@ func GenerateToken(UserID uint64, emailPtr, phonePtr *string, role string) (stri
 	}
 
 	signMethod := jwt.SigningMethodHS256
-	if jwtConfig.SignMethod == "hs256" {
+	switch jwtConfig.SignMethod {
+	case "hs256":
 		signMethod = jwt.SigningMethodHS256
-	} else if jwtConfig.SignMethod == "hs384" {
+	case "hs384":
 		signMethod = jwt.SigningMethodHS384
-	} else if jwtConfig.SignMethod == "hs512" {
+	case "hs512":
 		signMethod = jwt.SigningMethodHS512
 	}
 

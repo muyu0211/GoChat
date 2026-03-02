@@ -9,7 +9,7 @@ import "encoding/json"
 const (
 	CmdSingleChat = "single_chat"
 	CmdGroupChat  = "group_chat"
-	CmdNotice     = "notice"
+	CmdSystem     = "system"
 	CmdAck        = "ack"
 	CmdRevoke     = "revoke"
 	CmdDelete     = "delete"
@@ -90,7 +90,6 @@ func (msg *SendMsg) GetConversationID() string {
 func (msg *ReplyMsg) Serialize() ([]byte, error) {
 	return json.Marshal(msg)
 }
-
 func (msg *SendMsg) Deserialize(data []byte) error {
 	return json.Unmarshal(data, msg)
 }
@@ -109,6 +108,11 @@ func (msg *ReplyMsg) GetSenderID() uint64 {
 }
 func (msg *ReplyMsg) GetConversationID() string {
 	return msg.ConversationID
+}
+
+func (msg *ReplyMsg) SetContent(content string) *ReplyMsg {
+	msg.Content = content
+	return msg
 }
 
 func (msg *AckPayload) Serialize() ([]byte, error) {

@@ -5,9 +5,10 @@ import (
 )
 
 type KafkaConfig struct {
-	Brokers    []string       `mapstructure:"brokers"`
-	AckConfig  BusinessConfig `mapstructure:"ack"`
-	ChatConfig BusinessConfig `mapstructure:"chat"`
+	Brokers        []string       `mapstructure:"brokers"`
+	AckConfig      BusinessConfig `mapstructure:"ack"`
+	ChatConfig     BusinessConfig `mapstructure:"chat"`
+	GroupMsgConfig BusinessConfig `mapstructure:"group_msg"`
 }
 
 // BusinessConfig  业务配置
@@ -32,7 +33,7 @@ type ConsumerConfig struct {
 	MaxBytes       int           `mapstructure:"max_bytes"` // 最大拉取字节 (如 10MB)
 	MaxWait        time.Duration `mapstructure:"max_wait"`
 	CommitInterval time.Duration `mapstructure:"commit_interval"` // 自动提交间隔
-	Workers        int           `mapstructure:"workers"`         // 【关键】消费者内部处理协程池大小
+	Workers        int           `mapstructure:"workers"`         // 消费者内部处理协程池大小
 	StartOffset    int64         `mapstructure:"start_offset"`
 }
 

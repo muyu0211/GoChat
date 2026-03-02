@@ -1,10 +1,12 @@
 package logger
 
 import (
+	"GoChat/config"
+	"os"
+
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
-	"os"
 )
 
 type zapKafkaAdapter struct {
@@ -19,14 +21,17 @@ var (
 // 初始化Kafka日志
 func init() {
 	env := "dev"
+	cfg := &config.KafkaLoggerConfig{
+		Filename: "logs/kafka.log",
+	}
 
 	// 1. 配置日志切割 (Lumberjack)
 	kafkaWriteSyncer := zapcore.AddSync(&lumberjack.Logger{
-		Filename:   "logs/kafka.log", // 单独的日志文件路径
-		MaxSize:    100,              // 每个日志文件最大 100MB
-		MaxBackups: 10,               // 保留最近 10 个文件
-		MaxAge:     30,               // 保留最近 30 天
-		Compress:   true,             // 是否压缩
+		Filename:   cfg.Filename,   // 单独的日志文件路径
+		MaxSize:    cfg.MaxSize,    // 每个日志文件最大 100MB
+		MaxBackups: cfg.MaxBackups, // 保留最近 10 个文件
+		MaxAge:     cfg.MaxAge,     // 保留最近 30 天
+		Compress:   cfg.Compress,   // 是否压缩
 	})
 
 	// 2. 配置编码器 (Encoder) - 建议开发环境用 Console，生产用 JSON
@@ -56,6 +61,7 @@ func init() {
 
 	KafkaLogger = zap.New(kafkaCore, zap.AddCaller(), zap.AddStacktrace(zapcore.ErrorLevel)).
 		With(zap.String("module", "kafka"))
+
 }
 
 func NewZapKafkaAdapter(logger *zap.SugaredLogger, level zapcore.Level) *zapKafkaAdapter {

@@ -5,7 +5,6 @@ import (
 	"GoChat/pkg/logger"
 	"context"
 	"errors"
-	"log"
 	"sync"
 
 	"github.com/segmentio/kafka-go"
@@ -42,7 +41,7 @@ func NewKafkaConsumer(brokers []string, cfg *config.BusinessConfig) (Consumer, e
 		MaxWait:        cfg.Consumer.MaxWait,
 		CommitInterval: cfg.Consumer.CommitInterval,
 		StartOffset:    cfg.Consumer.StartOffset,
-		//Logger:         logger.NewZapKafkaAdapter(logger.KafkaLogger.Sugar(), zap.DebugLevel),
+		// Logger:         logger.NewZapKafkaAdapter(logger.KafkaLogger.Sugar(), zap.DebugLevel),
 	})
 	return &kafkaConsumer{r: r}, nil
 }
@@ -51,18 +50,18 @@ func (kc *kafkaConsumer) RegisterHandler(handler MessageHandler) {
 	kc.handler = handler
 }
 
-// Consume 启动消费者 (协程启动）
+// Consume 启动消费者 (协程启动)
 func (kc *kafkaConsumer) Consume(ctx context.Context) {
 	logger.KafkaLogger.Info("开始执行消费者协程")
 	for {
+		// 0. 监听服务是否关闭
 		select {
 		case <-ctx.Done():
-			log.Println("消费者协程关闭")
 			kc.Close()
 		default:
 		}
 
-		// 拉取消息
+		// 1.拉取消息
 		msg, err := kc.r.FetchMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -71,15 +70,15 @@ func (kc *kafkaConsumer) Consume(ctx context.Context) {
 			logger.KafkaLogger.Warn("[Kafka] Fetch error", zap.Error(err))
 			continue
 		}
-		log.Println("消费者拉取到消息：", string(msg.Key), ", ", string(msg.Value))
 
-		// 执行业务处理
+		// 2.执行业务处理
 		if kc.handler != nil {
 			if err = kc.handler(ctx, msg.Key, msg.Value); err != nil {
 				logger.KafkaLogger.Error("[Kafka] 处理消息失败", zap.Error(err))
 			}
 		}
 
+		// 3.消息确认
 		if err = kc.r.CommitMessages(ctx, msg); err != nil {
 			logger.KafkaLogger.Warn("[Kafka] Commit error", zap.Error(err))
 		}

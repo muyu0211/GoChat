@@ -5,7 +5,6 @@ import (
 	"GoChat/pkg/util"
 	"context"
 	"errors"
-	"log"
 
 	"github.com/segmentio/kafka-go"
 	"go.uber.org/zap"
@@ -52,7 +51,6 @@ func NewKafkaProducer(brokers []string, cfg *config.BusinessConfig) (Producer, e
 func (kp *kafkaProducer) Publish(ctx context.Context, key, msg []byte) error {
 	// 带重试的写入
 	if err := util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
-		log.Printf("重试, 向kafka发布消息：key: %s, value: %s", key, string(msg))
 		return kp.w.WriteMessages(ctx, kafka.Message{Key: key, Value: msg})
 	}); err != nil {
 		zap.L().Warn("kafka publish error", zap.Error(err))

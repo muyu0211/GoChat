@@ -53,15 +53,17 @@ func Retry(maxTimes int, interval time.Duration, fn func() error) error {
 		}
 		time.Sleep(interval)
 	}
-	// 2. 获取函数的PC值
+
+	// 重试全部失败后操作
 	pc := reflect.ValueOf(fn).Pointer()
-	// 3. 通过PC值获取函数信息
 	funcInfo := runtime.FuncForPC(pc)
-	var fullName string
+	fullName := ""
 	if funcInfo == nil {
 		fullName = "未知函数"
 	} else {
-		fullName = funcInfo.Name() // 完整名称：包名.函数名（如main.add）
+		fullName = funcInfo.Name()
 	}
+
+	zap.L().Warn("方法重试失败", zap.String("方法", fullName), zap.Int("重试次数", maxTimes), zap.Error(err))
 	return fmt.Errorf("方法: %s重试%d次后失败：%w", fullName, maxTimes, err)
 }

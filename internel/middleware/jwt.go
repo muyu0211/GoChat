@@ -25,7 +25,8 @@ func JWTMiddleware() gin.HandlerFunc {
 		if tokenStr == "" {
 			// 2. 没有则从query参数中获取
 			tokenStr = c.Query("token")
-			//// TODO：开发阶段，token为接收方id
+
+			//// TODO:开发阶段，token为接收方id
 			//c.Set(util.CtxUserIDKey, tokenStr)
 			//c.Next()
 			//return
@@ -62,7 +63,7 @@ func JWTMiddleware() gin.HandlerFunc {
 		c.Set(util.CtxUserIDKey, claims.UserID)
 		c.Set(util.CtxEmailKey, claims.Email)
 		c.Set(util.CtxPhoneKey, claims.Phone)
-		c.Set(util.CtxRoleKey, claims.Role)
+		c.Set(util.CtxStateKey, claims.State)
 		c.Next()
 	}
 }

@@ -11,11 +11,16 @@ import (
 	"GoChat/internel/repository/cache"
 	"GoChat/internel/service"
 	"GoChat/pkg/db"
+	"context"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/google/wire"
 	"gorm.io/gorm"
 )
+
+func providerCtx() context.Context {
+	return context.Background()
+}
 
 func providerConfig() *config.Config {
 	return config.Cfg
@@ -43,6 +48,20 @@ func providerKafkaACKConsumer(cfg *config.Config) (*mq.AckConsumer, error) {
 	)
 }
 
+func providerKafkaGroupMessageProducer(cfg *config.Config) (*mq.GroupMsgProducer, error) {
+	return mq.NewGroupMsgProducer(
+		cfg.KafkaConfig.Brokers,
+		&cfg.KafkaConfig.GroupMsgConfig,
+	)
+}
+
+func providerKafkaGroupMessageConsumer(cfg *config.Config) (*mq.GroupMsgConsumer, error) {
+	return mq.NewGroupMsgConsumer(
+		cfg.KafkaConfig.Brokers,
+		&cfg.KafkaConfig.GroupMsgConfig,
+	)
+}
+
 // 定义 infrastructure 集合
 var infrastructureSet = wire.NewSet(
 	providerConfig,
@@ -50,6 +69,8 @@ var infrastructureSet = wire.NewSet(
 	providerRDB,
 	providerKafkaACKProducer,
 	providerKafkaACKConsumer,
+	providerKafkaGroupMessageConsumer,
+	providerKafkaGroupMessageProducer,
 )
 
 // 定义 repository 集合

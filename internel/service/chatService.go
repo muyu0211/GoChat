@@ -18,11 +18,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"go.uber.org/zap"
 )
 
 type IChatService interface {
-	Run(ctx context.Context)
 	HandleSingleChatMsg(context.Context, *ws.Client, *ws.SendMsg) error
 	HandleGroupChatMsg(context.Context, *ws.Client, *ws.SendMsg) error
 	HandleAckMsg(context.Context, *ws.Client, *ws.SendMsg) error
@@ -33,8 +33,9 @@ type IChatService interface {
 type ChatService struct {
 	seqFactory    *SeqFactoryService
 	pushService   *PushService
+	userService   *UserService
 	chatRepo      *repository.ChatRepo
-	converRepo    *repository.ConvRepo
+	convRepo      *repository.ConvRepo
 	groupChatRepo *repository.GroupMsgRepo
 	redisCache    *cache.RedisCache
 	tx            *TxManager
@@ -48,13 +49,14 @@ type ChatService struct {
 	flushInterval time.Duration
 }
 
-func NewChatService(sq *SeqFactoryService, ps *PushService, cr *repository.ChatRepo, ccr *repository.ConvRepo,
+func NewChatService(sq *SeqFactoryService, ps *PushService, us *UserService, cr *repository.ChatRepo, ccr *repository.ConvRepo,
 	gmr *repository.GroupMsgRepo, tx *TxManager, rc *cache.RedisCache, producer *mq.AckProducer, consumer *mq.AckConsumer) *ChatService {
 	cs := &ChatService{
 		seqFactory:    sq,
 		pushService:   ps,
+		userService:   us,
 		chatRepo:      cr,
-		converRepo:    ccr,
+		convRepo:      ccr,
 		groupChatRepo: gmr,
 		tx:            tx,
 		redisCache:    rc,
@@ -67,64 +69,103 @@ func NewChatService(sq *SeqFactoryService, ps *PushService, cr *repository.ChatR
 	// 注册ack消息处理函数, 注意：handler 必须是并发安全的
 	if consumer != nil {
 		consumer.RegisterHandler(cs.handlerAckFromMq)
+
+		// 启动ack消费者监听
+		util.SafeGo(func() {
+			cs.run(context.Background())
+		})
 	}
 	return cs
 }
 
 // Run 启动kafka消费服务
-func (c *ChatService) Run(ctx context.Context) {
+func (c *ChatService) run(ctx context.Context) {
+	if c.consumer == nil {
+		panic("ack consumer is nil")
+	}
 	// 1. 启动定时刷库协程
 	util.SafeGo(func() {
 		c.flushLoop(ctx)
 	})
-	if c.consumer != nil {
-		// 2. 启动消费者 (Consumer - 阻塞运行)
-		c.consumer.Consume(ctx)
-	}
+
+	// 2. 启动消费者 (Consumer - 阻塞运行)
+	c.consumer.Consume(ctx)
 }
 
-// HandleSingleChatMsg 处理上行聊天消息(用户发送过来的消息): 整个“上行”流程：去重 -> 取号 -> 落库 -> (给客户端)返回 ACK 数据。
+// HandleSingleChatMsg 处理上行聊天消息(用户发送过来的消息): 整个"上行"流程：参数校验 -> 接收方检查 -> 去重 -> 取号 -> 落库 -> (给客户端)返回 ACK 数据。
 func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
-	var conversationID string
 	senderID := client.UserID
+	req.SenderID = senderID
 	createdAt := time.Now().UTC()
-
-	// 先异步向客户端回复ACK，表示服务端已经收到消息（主流程不阻塞，失败后重试）
-	util.SafeGo(func() {
-		ack := &ws.ReplyMsg{
-			Cmd:            ws.CmdAck,
-			ConversationID: conversationID,
-			ReceiverID:     req.SenderID,
-			ClientMsgID:    req.ClientMsgID,
-			SeqID:          req.SeqID,
-			TimeStamp:      createdAt.UnixMilli(),
-		}
-		c.pushMsg(ctx, ack)
-	})
-
-	// 1. 获取会话ID
-	if req.ConversationID != "" {
-		conversationID = req.ConversationID
-	} else {
-		conversationID = util.GetConversationID(req.SenderID, req.ReceiverID)
+	ack := &ws.ReplyMsg{
+		Cmd:        ws.CmdAck,
+		ReceiverID: senderID,
+		TimeStamp:  createdAt.UnixMilli(),
 	}
-	// 2. 幂等性检查 和 生成会话ID （redis事务实现）
-	isDup, seqID, err := c.seqFactory.CheckAndSetDedupWithSeq(ctx, senderID, conversationID, req.ClientMsgID, util.RedisDupExpire)
+
+	// 1. 获取并校验会话ID
+	if req.ConversationID != "" {
+		converID := req.ConversationID
+		// 校验 conversationID 格式：格式为"发送方ID_接收方ID"
+		parts := strings.Split(converID, "_")
+		if len(parts) != 2 {
+			zap.L().Error("conversationID格式错误", zap.String("conversationID", converID))
+			c.pushMsg(ctx, ack.SetContent("conversationID格式错误"))
+			return errors.New("conversationID格式错误")
+		}
+		// 校验 conversationID 是否包含发送方和接收方
+		id1, err1 := strconv.ParseUint(parts[0], 10, 64)
+		id2, err2 := strconv.ParseUint(parts[1], 10, 64)
+		if err1 != nil || err2 != nil {
+			zap.L().Error("conversationID中的ID格式错误", zap.String("conversationID", converID))
+			c.pushMsg(ctx, ack.SetContent("conversationID中的ID格式错误"))
+			return errors.New("conversationID中的ID格式错误")
+		}
+		// 确保 conversationID 包含发送方和接收方（顺序可以不同）
+		if (id1 != senderID && id1 != req.ReceiverID) || (id2 != senderID && id2 != req.ReceiverID) {
+			zap.L().Error("conversationID与发送方/接收方不匹配",
+				zap.String("conversationID", converID),
+				zap.Uint64("senderID", senderID),
+				zap.Uint64("receiverID", req.ReceiverID))
+			c.pushMsg(ctx, ack.SetContent("conversationID与发送方/接收方不匹配"))
+			return errors.New("conversationID与发送方/接收方不匹配")
+		}
+	} else {
+		req.ConversationID = util.GetConversationID(senderID, req.ReceiverID)
+	}
+
+	// 2. 检查接收方是否存在且账户状态可用
+	exists, err := c.userService.CheckUserExistsAndActive(ctx, req.ReceiverID)
+	if err != nil {
+		zap.L().Error("检查接收方状态失败", zap.Uint64("receiverID", req.ReceiverID), zap.Error(err))
+		return err
+	}
+	if !exists {
+		zap.L().Warn("接收方不存在或账户不可用", zap.Uint64("receiverID", req.ReceiverID))
+		c.pushMsg(ctx, ack.SetContent("接收方不存在或账户不可用"))
+		return errors.New("接收方不存在或账户不可用")
+	}
+
+	// 3. 幂等性检查 和 生成会话ID （redis事务实现）
+	isDup, seqID, err := c.seqFactory.CheckAndSetDedupWithSeq(ctx, senderID, req.ConversationID, req.ClientMsgID, util.RedisDupExpire)
 	if err != nil {
 		zap.L().Error("消息去重失/取号失败", zap.Error(err))
 	}
 	if isDup {
-		log.Println("消息重复")
+		// 消息重复时也需要回复ACK
+		util.SafeGo(func() {
+			c.pushMsg(ctx, ack.SetContent("消息重复"))
+		})
 		return nil
 	}
 
-	// 3. 消息落库（事务操作：message表新增记录 + conversation表更新相应字段）
+	// 4. 消息落库（事务操作：message表新增记录 + conversation表更新相应字段）
 	err = c.tx.ExecTx(ctx, func(ctx context.Context) error {
 		// 创建 message 表记录
-		err := c.chatRepo.Create(ctx, &dao.MessageModel{
-			ConversationID: conversationID,
+		err = c.chatRepo.Create(ctx, &dao.MessageModel{
+			ConversationID: req.ConversationID,
 			SeqID:          seqID,
-			SenderID:       senderID,
+			SenderID:       req.SenderID,
 			ReceiverID:     req.ReceiverID,
 			Content:        req.Content,
 			MsgType:        req.MsgType,
@@ -133,10 +174,10 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 		})
 
 		// 更新 conversation 表中发送方记录
-		err = c.converRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, conversationID, seqID, createdAt)
+		err = c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt)
 
 		// 更新 conversation 表中接收方记录
-		err = c.converRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, conversationID, seqID, createdAt)
+		err = c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt)
 
 		if err != nil {
 			return err
@@ -148,7 +189,21 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 		return err
 	}
 
-	// 4. 异步更新redis中双方会话表缓存(Set存储)
+	// 5. 向客户端回复ACK（优化：落库成功后再回复ACK，确保数据一致性）
+	util.SafeGo(func() {
+		ack := &ws.ReplyMsg{
+			Cmd:            ws.CmdAck,
+			ConversationID: req.ConversationID,
+			SenderID:       req.SenderID,
+			ReceiverID:     req.ReceiverID,
+			ClientMsgID:    req.ClientMsgID,
+			AckID:          seqID,
+			TimeStamp:      createdAt.UnixMilli(),
+		}
+		c.pushMsg(ctx, ack)
+	})
+
+	// 6. 异步更新redis中双方会话表缓存(Set存储)
 	util.SafeGo(func() {
 		senderConvKey := util.GetRedisConvKey(req.SenderID)
 		receiverConvKey := util.GetRedisConvKey(req.ReceiverID)
@@ -161,11 +216,11 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 		}
 	})
 
-	// 5. 异步调用下行推送服务（带重试+死信队列）
+	// 7. 异步调用下行推送服务（带重试+死信队列）
 	util.SafeGo(func() {
 		reply := &ws.ReplyMsg{
 			Cmd:            ws.CmdSingleChat,
-			ConversationID: conversationID,
+			ConversationID: req.ConversationID,
 			ClientMsgID:    req.ClientMsgID,
 			SeqID:          seqID,
 			SenderID:       senderID,
@@ -181,41 +236,33 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 
 // HandleGroupChatMsg 处理群聊上行消息
 func (c *ChatService) HandleGroupChatMsg(ctx context.Context, client *ws.Client, req *ws.SendMsg) error {
-	var conversationID string
+	var groupID uint64
 	senderID := client.UserID
 	createdAt := time.Now().UTC()
 
-	// 异步回复 ACK
-	util.SafeGo(func() {
-		ack := &ws.ReplyMsg{
-			Cmd:            ws.CmdAck,
-			ConversationID: conversationID,
-			ReceiverID:     req.SenderID,
-			ClientMsgID:    req.ClientMsgID,
-			SeqID:          req.SeqID,
-			TimeStamp:      createdAt.UnixMilli(),
-		}
-		c.pushMsg(ctx, ack)
-	})
-
 	// 0. 获取会话ID
 	if req.ConversationID != "" {
-		conversationID = req.ConversationID
+		groupID, _ = strconv.ParseUint(req.ConversationID, 10, 64)
 	} else {
 		return errors.New("会话 ID 不能为空")
 	}
 
-	// 1. 判断群聊是否存在/用户是否在群聊中/是否被禁言
-	groupIDKey := util.GetRedisGroupIDKey(conversationID)
-	log.Println("群聊ID: ", groupIDKey)
+	// 1. a.判断群聊是否存在
+	groupIDKey := util.GetRedisGroupIDKey(groupID)
 	if exist, err := c.redisCache.Exists(ctx, groupIDKey); err != nil {
 		zap.L().Error("判断用户是否在群聊中失败", zap.Error(err))
 		return err
 	} else if !exist {
-		// TODO: 查找数据库
+		// TODO: 查找数据库，判断群聊是否存在
 		return errors.New("群聊不存在")
 	}
+
+	// 1. b.判断用户是否在群聊中/是否被禁言
 	if status, err := c.redisCache.HGet(ctx, groupIDKey, strconv.FormatUint(req.SenderID, 10)); err != nil {
+		if errors.Is(err, redis.Nil) {
+			// TODO: 查找数据库，判断用户是否在群聊中
+			return nil
+		}
 		zap.L().Error("判断用户是否在群聊中失败", zap.Error(err), zap.String("status", status))
 		return err
 	} else if status == "" {
@@ -226,10 +273,8 @@ func (c *ChatService) HandleGroupChatMsg(ctx context.Context, client *ws.Client,
 		return errors.New("用户被禁言")
 	}
 
-	// TODO：缓存没命中时进行数据库查找并更新缓存
-
-	// 2. 幂等性检查 和 生成会话ID （redis事务实现）
-	isDup, seqID, err := c.seqFactory.CheckAndSetDedupWithSeq(ctx, senderID, conversationID, req.ClientMsgID, util.RedisDupExpire)
+	// 2. 幂等性检查、生成会话ID （lua脚本保证redis原子性）
+	isDup, seqID, err := c.seqFactory.CheckAndSetDedupWithSeq(ctx, senderID, req.ConversationID, req.ClientMsgID, util.RedisDupExpire)
 	if err != nil {
 		zap.L().Error("消息去重失/取号失败", zap.Error(err))
 	}
@@ -238,11 +283,57 @@ func (c *ChatService) HandleGroupChatMsg(ctx context.Context, client *ws.Client,
 		return nil
 	}
 
+	// 3. 回复 ACK
+	util.SafeGo(func() {
+		ack := &ws.ReplyMsg{
+			Cmd:            ws.CmdAck,
+			ConversationID: fmt.Sprintf("%d", groupID),
+			ReceiverID:     req.SenderID,
+			ClientMsgID:    req.ClientMsgID,
+			SeqID:          req.SeqID,
+			TimeStamp:      createdAt.UnixMilli(),
+		}
+		c.pushMsg(ctx, ack)
+	})
+
+	// 优化: 直接将群消息送入kakfa队列
+	// 4. 构造mq消息体
+	groupMsg := &mq.GroupMsgEvent{
+		Cmd:         ws.CmdGroupChat,
+		GroupID:     groupID,
+		SenderID:    senderID,
+		Content:     req.Content,
+		TimeStamp:   createdAt.UnixMilli(),
+		ClientMsgID: req.ClientMsgID,
+		SeqID:       seqID,
+		MsgType:     req.MsgType,
+	}
+
+	// 5. 发送mq消息
+	msgBytes, err := groupMsg.Serialize()
+	if err != nil {
+		zap.L().Error("序列化群消息失败", zap.Error(err))
+		return err
+	}
+
+	// 同一群组的消息发布到同一个分区中，保证消息有序
+	pubCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	util.SafeGo(func() {
+		key := fmt.Sprintf("%s:%d", "group", groupID)
+		err = c.producer.Publish(pubCtx, []byte(key), msgBytes)
+		if err != nil {
+			zap.L().Error("发送群消息到kafka失败", zap.Error(err))
+			return
+		}
+	})
+
 	// 进行落库及后续逻辑处理：先写数据库，再写缓存，流程上尽量保证一致性
 	// 创建 message 表记录
 	msg := &dao.GroupMessageModel{
 		GroupKeyID: req.GroupKeyID,
-		GroupID:    req.ReceiverID,
+		GroupID:    groupID,
 		SeqID:      seqID,
 		SenderID:   senderID,
 		Content:    req.Content,
@@ -252,20 +343,15 @@ func (c *ChatService) HandleGroupChatMsg(ctx context.Context, client *ws.Client,
 		return err
 	}
 
-	// 每个群用户的会话表（conversation）都需要更新
-	/**
-	TODO: 保底策略：当主动往每位用户的conversation表写入失败时，
-		  用户主动拉取：获取group_message表中的最新的seqID，与本地比对，如果有缺失信息，再向服务端拉取
-	*/
-	util.SafeGo(func() {
-		c.asyncFanOut(req.GroupKeyID, req.ReceiverID, req.SenderID, msg)
-	})
+	// util.SafeGo(func() {
+	// 	c.asyncFanOutOnWrite(req.GroupKeyID, req.ReceiverID, req.SenderID, msg)
+	// })
 
 	return nil
 }
 
-// asyncFanOut 异步写扩散
-func (c *ChatService) asyncFanOut(groupKeyID int64, groupID uint64, senderID uint64, msg *dao.GroupMessageModel) {
+// asyncFanOutOnWrite 异步写扩散
+func (c *ChatService) asyncFanOutOnWrite(groupKeyID int64, groupID uint64, senderID uint64, msg *dao.GroupMessageModel) {
 	// 创建一个独立的 Context，防止父 Context 取消导致中断
 	ctx := context.Background()
 
@@ -276,23 +362,22 @@ func (c *ChatService) asyncFanOut(groupKeyID int64, groupID uint64, senderID uin
 		zap.L().Error("获取群内所有成员 ID 失败", zap.Error(err))
 		return
 	}
-
-	// 2. 批量更新会话列表 (Write Diffusion for Sessions)
-	// 让所有成员的会话列表置顶，未读数 +1
-	// 注意：发送者自己不需要加未读数
 	memberIDs := make([]uint64, 0, len(memberIDsMap))
 	for memberIDStr, _ := range memberIDsMap {
 		memberID, _ := strconv.ParseUint(memberIDStr, 10, 64)
 		memberIDs = append(memberIDs, memberID)
 	}
 
-	// 3. 实时推送 (Push)
+	// 2. 将消息实时推送给所有群成员 (Push)
 	c.batchPushToUsers(ctx, senderID, memberIDs, msg)
-	
-	// 4. 批量更新会话列表
+
+	// 3. 批量更新会话列表
+	// TODO: 在创建群组时只对群组创建conversation记录，后续有群消息才会对其他成员创建conversation记录
+	//  	 因此在这个业务处理中，如果用户没有conversation记录要同步创建
 	c.batchUpdateGroupConversations(ctx, senderID, groupKeyID, msg, memberIDs)
 }
 
+// batchUpdateGroupConversations 批量更新conversation记录，如果没有记录则要进行插入
 func (c *ChatService) batchUpdateGroupConversations(ctx context.Context, senderID uint64, groupKeyID int64, msg *dao.GroupMessageModel, memberIDs []uint64) {
 	// 简单实现：循环更新 (生产环境建议用 Kafka 削峰或 SQL 批量 CASE WHEN)
 	batchSize := 100
@@ -304,7 +389,7 @@ func (c *ChatService) batchUpdateGroupConversations(ctx context.Context, senderI
 		batchUIDs := memberIDs[i:end]
 
 		log.Println("批量更新Conversation, groupKeyID: ", groupKeyID)
-		if err := c.converRepo.UpdateGroupConversations(ctx, groupKeyID, batchUIDs, msg.SeqID, senderID); err != nil {
+		if err := c.convRepo.UpdateGroupConversations(ctx, groupKeyID, batchUIDs, msg.SeqID, senderID); err != nil {
 			zap.L().Error("批量更新会话列表失败", zap.Error(err))
 		}
 	}
@@ -336,7 +421,7 @@ func (c *ChatService) pushMsg(ctx context.Context, reply ws.Msg) {
 	pushCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if err := c.pushService.Push(pushCtx, reply); err != nil {
+	if err := c.pushService.Push(pushCtx, []ws.Msg{reply}, reply.GetReceiverID()); err != nil {
 		zap.L().Error("消息推送失败",
 			zap.Uint64("sender_id", reply.GetSenderID()),
 			zap.Error(err))
@@ -480,7 +565,7 @@ func (c *ChatService) processBatchAck(ctx context.Context, batch []*dto.UpdatesA
 		zap.L().Error("[Redis] Pipeline删除消息失败", zap.Error(err))
 	}
 
-	if err := c.converRepo.BulkUpdateLastAck(ctx, batch); err != nil {
+	if err := c.convRepo.BulkUpdateLastAck(ctx, batch); err != nil {
 		zap.L().Error("[MySQL] Batch update failed",
 			zap.Uint64("start_user_id", batch[0].UserID),
 			zap.Int("batch_size", len(batch)),

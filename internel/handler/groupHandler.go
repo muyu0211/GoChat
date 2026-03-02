@@ -31,8 +31,11 @@ func (gh *GroupHandler) CreateGroup(c *gin.Context) {
 	var resp *dto.CreateGroupResp
 	var err error
 
-	if req.Members == nil || len(req.Members) == 0 {
-		req.Members = []uint64{req.OwnerID}
+	userID := c.Value(util.CtxUserIDKey).(uint64)
+	req.OwnerID = userID
+
+	if len(req.Members) == 0 {
+		req.Members = []uint64{userID}
 	}
 
 	if resp, err = gh.groupService.NewGroup(ctx, &req); err != nil {

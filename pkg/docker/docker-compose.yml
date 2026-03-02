@@ -44,6 +44,9 @@ services:
       - ginchat-network
 
   # Kafka服务（单节点模式，controller+broker）
+  # kafka源：compose启动前先单独拉取kafka镜像
+#  docker pull swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kafka:3.6.2
+#  docker tag  swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kafka:3.6.2  docker.io/bitnami/kafka:3.6.2
   kafka:
     image: 'bitnami/kafka:3.6.2'
     container_name: kafka
@@ -58,7 +61,7 @@ services:
       - KAFKA_CFG_PROCESS_ROLES=controller,broker
       - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=0@kafka:9093
       - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://192.168.44.129:9094
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://192.168.74.128:9094
       - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
       # 新增：解决目录权限问题，指定运行用户为root（开发环境可用，生产环境建议映射普通用户）

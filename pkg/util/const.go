@@ -42,7 +42,13 @@ const (
 	LoginInPhoneWithPassword = "phone_password"
 
 	GroupIDOffSet      uint64 = 2_000_000
-	GroupDefaultMemNum        = 500
+	GroupDefaultMemNum int32  = 500
+)
+
+const (
+	GroupMember  = 0
+	GroupOwner   = 1
+	GroupManager = 2
 )
 
 const (
@@ -53,7 +59,7 @@ const (
 	CtxUserIDKey = "UserID"
 	CtxEmailKey  = "Email"
 	CtxPhoneKey  = "Phone"
-	CtxRoleKey   = "Role"
+	CtxStateKey  = "State"
 )
 
 func Init() {

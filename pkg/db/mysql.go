@@ -84,7 +84,7 @@ func connDB(sqlCfg *config.DBConfig, commCfg *config.MySQLConfig) (*gorm.DB, err
 		sqlCfg.Port,
 		sqlCfg.DBName)
 
-	gormLogger := logger.NewGormLogger(commCfg.SlowThreshold)
+	gormLogger := logger.NewGormLogger(&config.Cfg.GormLoggerConfig)
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
 		Logger: gormLogger,
 	})

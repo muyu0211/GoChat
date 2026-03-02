@@ -63,6 +63,7 @@ func GinLogger() gin.HandlerFunc {
 func GinRecovery() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
+			// 捕获当前请求发生的panic
 			if err := recover(); err != nil {
 				// 获取traceID
 				var strTraceID = "unknown"

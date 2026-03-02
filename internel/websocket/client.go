@@ -161,16 +161,8 @@ func (c *Client) ReadPump() {
 			continue
 		}
 
-		// 参数校验
-		if req.ReceiverID == 0 {
-			zap.L().Error("ReceiverID is empty")
-			continue
-		}
-		if req.ConversationID == "" {
-			req.ConversationID = util.GetConversationID(c.UserID, req.ReceiverID)
-		}
-		req.SenderID = c.UserID
-		err = c.wsRouter.Dispatch(context.Background(), c, &req)
+		ctx := context.WithValue(context.Background(), util.CtxUserIDKey, c.UserID)
+		err = c.wsRouter.Dispatch(ctx, c, &req)
 		if err != nil {
 			zap.L().Error("Handle Msg Error",
 				zap.String("cmd", req.Cmd),

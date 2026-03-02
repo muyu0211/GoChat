@@ -40,8 +40,17 @@ func (r *UserRepo) getTx(ctx context.Context) *gorm.DB {
 }
 
 func (r *UserRepo) GetByID(ctx context.Context, id uint64) (*dao.UserBasicModel, error) {
-	//db := r.getTx(ctx)
-	return nil, nil
+	var user dao.UserBasicModel
+	err := r.getTx(ctx).WithContext(ctx).Model(&dao.UserBasicModel{}).Where("id = ?", id).Take(&user).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		zap.L().Warn("failed to get user by id", zap.Error(err))
+		return nil, fmt.Errorf("failed to get user by id: %w", err)
+	}
+	return &user, nil
 }
 
 func (r *UserRepo) Create(ctx context.Context, user *dao.UserBasicModel) error {
@@ -79,7 +88,8 @@ func (r *UserRepo) GetByPhone(ctx context.Context, phone string) (*dao.UserBasic
 }
 func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*dao.UserBasicModel, error) {
 	var user dao.UserBasicModel
-	err := r.getTx(ctx).WithContext(ctx).Model(&dao.UserBasicModel{}).Where("email = ?", email).Take(&user).Error
+	db := r.getTx(ctx).WithContext(ctx)
+	err := db.Model(&dao.UserBasicModel{}).Where("email = ?", email).Take(&user).Error
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

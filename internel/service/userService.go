@@ -23,7 +23,7 @@ import (
 
 type IUserService interface {
 	CreateUser(context.Context, *dao.UserBasicModel) error
-	SendEmailCode(context.Context, string, string) error
+	SendEmailCode(context.Context, string, string) (string, error)
 	SendPhoneCode(context.Context, string) error
 	LoginInCode(context.Context, *dto.LoginRequest) (*dto.LoginResponse, error)
 	LoginInPW(context.Context, *dto.LoginRequest) (*dto.LoginResponse, error)
@@ -31,6 +31,7 @@ type IUserService interface {
 	UserOnline(ctx context.Context, userID uint64) error
 	UserOffline(ctx context.Context, userID uint64) error
 	GetUserLocation(ctx context.Context, userID uint64) (string, error)
+	CheckUserExistsAndActive(ctx context.Context, userID uint64) (bool, error)
 }
 
 const (
@@ -53,13 +54,13 @@ func (us *UserService) CreateUser(ctx context.Context, user *dao.UserBasicModel)
 	return nil
 }
 
-func (us *UserService) SendEmailCode(ctx context.Context, title, email string) error {
+func (us *UserService) SendEmailCode(ctx context.Context, title, email string) (string, error) {
 	// 解析邮件模板
-	tmp, err := template.ParseFiles("web/template/email.html")
+	tmp, err := template.ParseFiles("../web/template/email.html")
 	if err != nil {
 		zap.L().Warn("mail.html not found in path",
 			zap.Error(err))
-		return errors.New(util.ErrService)
+		return "", errors.New(util.ErrService)
 	}
 
 	// 生成验证码
@@ -68,7 +69,7 @@ func (us *UserService) SendEmailCode(ctx context.Context, title, email string) e
 	// 将验证码存入redis
 	key := util.KeyVerifyCode + email
 	if err = us.redisCache.Set(ctx, key, code, util.CodeExpireTime); err != nil {
-		return err
+		return "", err
 	}
 
 	// 构造邮件页面的标题和验证码
@@ -80,7 +81,7 @@ func (us *UserService) SendEmailCode(ctx context.Context, title, email string) e
 	err = tmp.Execute(&execTmp, emailContent)
 	if err != nil {
 		zap.L().Warn(fmt.Sprintf("mail.html can not be executed: %v", err))
-		return errors.New(util.ErrService)
+		return "", errors.New(util.ErrService)
 	}
 	// 转化成字符串
 	mailTmp := execTmp.String()
@@ -94,13 +95,13 @@ func (us *UserService) SendEmailCode(ctx context.Context, title, email string) e
 	case errPair := <-errChan:
 		if errPair.Err != nil {
 			zap.L().Warn(fmt.Sprintf("Failed to send email (select) to %s: %v", errPair.Email, errPair.Err))
-			return fmt.Errorf("failed to send email (select) to %s: %v", errPair.Email, errPair.Err)
+			return "", fmt.Errorf("failed to send email (select) to %s: %v", errPair.Email, errPair.Err)
 		}
 	case <-time.After(time.Second * 10):
 		zap.L().Warn("Timed out waiting for email send result channel.")
-		return errors.New("timed out waiting for email send result channel")
+		return "", errors.New("timed out waiting for email send result channel")
 	}
-	return nil
+	return code, nil
 }
 
 func (us *UserService) SendPhoneCode(ctx context.Context, phone string) error {
@@ -177,7 +178,7 @@ func (us *UserService) LoginInCode(ctx context.Context, req *dto.LoginRequest) (
 	}
 
 	// 6. 生成token
-	token, err := auth.GenerateToken(uint64(user.ID), user.Email, user.Phone, string(user.State))
+	token, err := auth.GenerateToken(uint64(user.ID), user.Email, user.Phone, byte(user.State))
 	if err != nil {
 		zap.L().Error("failed to generate token", zap.Error(err))
 		return nil, err
@@ -212,6 +213,8 @@ func (us *UserService) LoginInPW(ctx context.Context, req *dto.LoginRequest) (*d
 		return nil, ErrInvalidCredentials
 	}
 
+	// TODO: 优化为先查找缓存
+
 	// 2. 查找数据库，返回用户数据
 	var user *dao.UserBasicModel
 	var err error
@@ -240,7 +243,7 @@ func (us *UserService) LoginInPW(ctx context.Context, req *dto.LoginRequest) (*d
 	}
 
 	// 6. 生成token
-	token, err := auth.GenerateToken(user.ID, user.Email, user.Phone, string(user.State))
+	token, err := auth.GenerateToken(user.ID, user.Email, user.Phone, byte(user.State))
 	if err != nil {
 		zap.L().Error("failed to generate token", zap.Error(err))
 		return nil, err
@@ -292,10 +295,11 @@ func (us *UserService) Register(ctx context.Context, req *dto.RegisterRequest) e
 	}
 
 	// 3. 创建新用户
+	state := dao.UserState(req.State)
 	user := &dao.UserBasicModel{
 		Nickname:       req.Nickname,
 		PassWordHashed: req.Password,
-		State:          1,
+		State:          state,
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 	}
@@ -350,4 +354,35 @@ func (us *UserService) GetUserLocation(ctx context.Context, userID uint64) (stri
 		return "", redis.Nil
 	}
 	return location, nil
+}
+
+// CheckUserExistsAndActive 检查用户是否存在且账户状态可用
+// 优先检查 Redis 中的用户位置（在线判断），不在线再查询数据库
+func (us *UserService) CheckUserExistsAndActive(ctx context.Context, userID uint64) (bool, error) {
+	// 1. 先检查 Redis 中是否有用户位置信息（用户在线）
+	_, err := us.GetUserLocation(ctx, userID)
+	if err == nil {
+		// 用户在线，说明用户存在且状态可用
+		return true, nil
+	}
+
+	// 2. Redis 中没有，查询数据库
+	user, err := us.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		zap.L().Error("查询用户失败", zap.Uint64("userID", userID), zap.Error(err))
+		return false, ErrServerNotAvailable
+	}
+
+	if user == nil {
+		// 用户不存在
+		return false, nil
+	}
+
+	// 3. 检查用户状态
+	if user.State == dao.UserStateBanned || user.State == dao.UserStateDeleted {
+		// 用户被封禁或已删除
+		return false, nil
+	}
+
+	return true, nil
 }

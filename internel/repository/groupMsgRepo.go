@@ -11,6 +11,7 @@ import (
 
 type IGroupMsgRepo interface {
 	IBaseRepository[dao.GroupMessageModel]
+	CreateBatch(ctx context.Context, entities []dao.GroupMessageModel, batchSize int) error
 }
 
 type GroupMsgRepo struct {
@@ -49,4 +50,14 @@ func (r *GroupMsgRepo) Update(ctx context.Context, entity *dao.GroupMessageModel
 }
 func (r *GroupMsgRepo) List(ctx context.Context, params QueryParams) ([]dao.GroupMessageModel, int64, error) {
 	return nil, 0, nil
+}
+
+// CreateBatch 批量创建群消息
+func (r *GroupMsgRepo) CreateBatch(ctx context.Context, entities []dao.GroupMessageModel, batchSize int) error {
+	db := r.getTx(ctx).WithContext(ctx)
+	if err := db.CreateInBatches(entities, batchSize).Error; err != nil {
+		zap.L().Error("批量创建群消息失败", zap.Error(err))
+		return err
+	}
+	return nil
 }

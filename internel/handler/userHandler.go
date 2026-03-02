@@ -21,6 +21,7 @@ func NewUserHandler(userService *service.UserService) *UserHandler {
 	return &UserHandler{userService: userService}
 }
 
+// SendVerifyCode  发送验证码
 func (uh *UserHandler) SendVerifyCode(ctx *gin.Context) {
 	var req dto.SendCodeRequest
 
@@ -31,18 +32,19 @@ func (uh *UserHandler) SendVerifyCode(ctx *gin.Context) {
 		return
 	}
 
-	// 格式验证是邮箱还是手机
 	if strings.TrimSpace(req.EmailOrPhone) == "" {
 		ctx.JSON(http.StatusBadRequest, util.NewResMsg("0", fmt.Sprintf("邮箱/手机号不能为空"), nil))
 		return
 	}
 
+	// 格式验证是邮箱还是手机
 	if util.ValidEmail(req.EmailOrPhone) {
-		if err := uh.userService.SendEmailCode(ctx.Request.Context(), "验证码", req.EmailOrPhone); err != nil {
+		code, err := uh.userService.SendEmailCode(ctx.Request.Context(), "验证码", req.EmailOrPhone)
+		if err != nil {
 			ctx.JSON(http.StatusInternalServerError, util.NewResMsg("0", fmt.Sprintf("服务繁忙, 请稍后重试"), nil))
 			return
 		}
-		ctx.JSON(http.StatusOK, util.NewResMsg("0", fmt.Sprintf("验证码发送成功"), nil))
+		ctx.JSON(http.StatusOK, util.NewResMsg("1", fmt.Sprintf("验证码发送成功"), code))
 	} else if util.ValidPhone(req.EmailOrPhone) {
 		if err := uh.userService.SendPhoneCode(ctx.Request.Context(), req.EmailOrPhone); err != nil {
 			ctx.JSON(http.StatusInternalServerError, util.NewResMsg("0", fmt.Sprintf("服务繁忙, 请稍后重试"), nil))
@@ -50,7 +52,7 @@ func (uh *UserHandler) SendVerifyCode(ctx *gin.Context) {
 		}
 		ctx.JSON(http.StatusOK, util.NewResMsg("0", fmt.Sprintf("验证码发送成功"), nil))
 	} else {
-		ctx.JSON(http.StatusInternalServerError, util.NewResMsg("0", fmt.Sprintf("邮箱/手机号格式错误"), nil))
+		ctx.JSON(http.StatusInternalServerError, util.NewResMsg("1", fmt.Sprintf("邮箱/手机号格式错误"), nil))
 		return
 	}
 }
@@ -97,6 +99,7 @@ func (uh *UserHandler) LoginInPW(ctx *gin.Context) {
 
 	resp, err := uh.userService.LoginInPW(ctx, &req)
 	if err != nil {
+		zap.L().Error("登录失败", zap.Error(err))
 		switch {
 		case errors.Is(err, service.ErrInvalidCredentials):
 			ctx.JSON(http.StatusForbidden, util.NewResMsg("0", "邮箱/手机号格式错误", nil))
