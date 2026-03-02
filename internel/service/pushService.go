@@ -59,51 +59,23 @@ func NewPushService(rc *cache.RedisCache, us *UserService) *PushService {
 
 // Push 推送服务: 将消息推送给接收方
 func (ps *PushService) Push(ctx context.Context, msgs []ws.Msg, receiverID uint64) error {
-	// 0. 对消息进行序列化
-	msgsBytes := make([][]byte, 0, len(msgs))
-	for _, msg := range msgs {
-		b, err := msg.Serialize()
-		if err != nil {
-			zap.L().Error("消息序列化失败", zap.Error(err))
-			return ErrMarshalJSON
-		}
-		msgsBytes = append(msgsBytes, b)
-	}
-
-	// 1. 查询接收方在哪一台服务器
-	serveID, err := ps.userService.GetUserLocation(ctx, receiverID)
-	if errors.Is(err, redis.Nil) {
-		// 对方不在线, 存入redis
-		for _, msg := range msgs {
-			if err = ps.saveOffline(ctx, msg); err != nil {
-				return ErrServerNotAvailable
-			}
-		}
-		return ErrUserOffline
-	}
-	if err != nil {
-		return err
-	}
-
-	if serveID == util.ServerID { // 本机推送
-		return ps.pushLocal(ctx, receiverID, msgs)
-	} else { // 跨服务器推送
-		for _, msgBytes := range msgsBytes {
-			if err := ps.Publish(ctx, receiverID, serveID, msgBytes); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
+	return ps.BatchPush(ctx, msgs, []uint64{receiverID})
 }
 
-// BatchPush 批量推送
+// BatchPush 批量推送: 将msgs中所有消息推送给receiversIDs中的所有接收者
 func (ps *PushService) BatchPush(ctx context.Context, msgs []ws.Msg, receiversIDs []uint64) error {
 	if len(msgs) == 0 || len(receiversIDs) == 0 {
 		return nil
 	}
+	// 0. 接收者置零
 
-	// 1. 按服务器对接收者分组
+	// 1. 批量序列化
+	msgsBytes, err := ps.batchSerialize(msgs)
+	if err != nil {
+		return err
+	}
+
+	// 2. 按服务器对接收者分组
 	groupedReceivers, err := ps.groupReceiversByServer(ctx, receiversIDs)
 	if err != nil {
 		zap.L().Error("分组接收者失败", zap.Error(err))
@@ -111,45 +83,59 @@ func (ps *PushService) BatchPush(ctx context.Context, msgs []ws.Msg, receiversID
 	}
 
 	wg := sync.WaitGroup{}
-	// 2. 处理本机在线用户
+	// 3. 处理本机在线用户
 	if localOnlineUsers, ok := groupedReceivers["local_online"]; ok && len(localOnlineUsers) > 0 {
 		wg.Add(1)
 		ps.pushPool.Submit(func() {
 			defer wg.Done()
-			ps.batchPushLocal(ctx, msgs, localOnlineUsers)
+			ps.batchPushLocal(ctx, msgsBytes, localOnlineUsers)
 		})
 	}
 
 	// 4. 处理本机离线用户（批量保存离线消息）
+	seqIDs := make([]uint64, 0, len(msgs))
+	for _, m := range msgs {
+		seqIDs = append(seqIDs, m.GetSeqID())
+	}
 	if localOfflineUsers, ok := groupedReceivers["offline"]; ok && len(localOfflineUsers) > 0 {
 		wg.Add(1)
 		ps.pushPool.Submit(func() {
 			defer wg.Done()
-			ps.batchSaveOffline(ctx, msgs, localOfflineUsers)
+			ps.batchSaveOffline(ctx, msgsBytes, localOfflineUsers, msgs[0].GetConversationID(), seqIDs)
 		})
 	}
 
 	// 5. 处理其他服务器用户（按服务器批量发布）
 	for serverID, serverUsers := range groupedReceivers {
 		// 跳过本机在线和离线用户
-		if serverID == util.ServerID ||
-			serverID == "local_online" ||
-			serverID == "offline" ||
-			len(serverUsers) == 0 {
-
+		if serverID == util.ServerID || serverID == "local_online" || serverID == "offline" || len(serverUsers) == 0 {
 			continue
 		}
 
 		wg.Add(1)
-		sID, users := serverID, serverUsers
+		sID, uID := serverID, serverUsers
 		ps.pushPool.Submit(func() {
 			defer wg.Done()
-			ps.batchPublish(ctx, msgs, sID, users)
+			ps.batchPublish(ctx, msgsBytes, sID, uID)
 		})
 	}
 
 	wg.Wait()
 	return nil
+}
+
+// batchSerialize 批量序列化消息
+func (ps *PushService) batchSerialize(msgs []ws.Msg) ([][]byte, error) {
+	msgsBytes := make([][]byte, 0, len(msgs))
+	for _, msg := range msgs {
+		b, err := msg.Serialize()
+		if err != nil {
+			zap.L().Error("消息序列化失败", zap.Error(err))
+			return nil, ErrMarshalJSON
+		}
+		msgsBytes = append(msgsBytes, b)
+	}
+	return msgsBytes, nil
 }
 
 // groupReceiversByServer 按服务器对接收者分组
@@ -194,22 +180,19 @@ func (ps *PushService) groupReceiversByServer(ctx context.Context, receiversID [
 }
 
 // batchPushLocal 批量推送给本机用户
-func (ps *PushService) batchPushLocal(ctx context.Context, msgsBytes []ws.Msg, userIDs []uint64) {
-	// 替换消息中的接收者
-
+func (ps *PushService) batchPushLocal(ctx context.Context, msgsBytes [][]byte, userIDs []uint64) {
 	for _, userID := range userIDs {
-		if err := ps.pushLocal(ctx, userID, msgsBytes); err != nil {
+		if err := ps.pushLocal(ctx, msgsBytes, userID); err != nil {
 			zap.L().Error("批量推送本地用户失败", zap.Uint64("userID", userID), zap.Error(err))
 		}
 	}
 }
 
 // batchSaveOffline 批量保存离线消息
-func (ps *PushService) batchSaveOffline(ctx context.Context, msgs []ws.Msg, userIDs []uint64) {
-	// TODO：优化为一次redis操作
+func (ps *PushService) batchSaveOffline(ctx context.Context, msgsBytes [][]byte, userIDs []uint64, converID string, seqIDs []uint64) {
 	for _, userID := range userIDs {
-		for _, msgBytes := range msgs {
-			if err := ps.saveOffline(ctx, msgBytes); err != nil {
+		for i, msgBytes := range msgsBytes {
+			if err := ps.saveOffline(ctx, msgBytes, userID, converID, seqIDs[i]); err != nil {
 				zap.L().Error("批量保存离线消息失败", zap.Uint64("userID", userID), zap.Error(err))
 			}
 		}
@@ -217,10 +200,10 @@ func (ps *PushService) batchSaveOffline(ctx context.Context, msgs []ws.Msg, user
 }
 
 // batchPublish 批量发布到其他服务器
-func (ps *PushService) batchPublish(ctx context.Context, msgs []ws.Msg, serverID string, userIDs []uint64) {
+func (ps *PushService) batchPublish(ctx context.Context, msgsBytes [][]byte, serverID string, userIDs []uint64) {
 	for _, userID := range userIDs {
-		for _, msg := range msgs {
-			if err := ps.Publish(ctx, userID, serverID, msg); err != nil {
+		for _, msgBytes := range msgsBytes {
+			if err := ps.Publish(ctx, userID, serverID, msgBytes); err != nil {
 				zap.L().Error("批量发布跨服务器消息失败", zap.Uint64("userID", userID), zap.String("serverID", serverID), zap.Error(err))
 			}
 		}
@@ -228,16 +211,15 @@ func (ps *PushService) batchPublish(ctx context.Context, msgs []ws.Msg, serverID
 }
 
 // pushLocal 将消息推送给本地的接收方
-func (ps *PushService) pushLocal(ctx context.Context, userID uint64, msgs []ws.Msg) error {
+func (ps *PushService) pushLocal(ctx context.Context, msgsBytes [][]byte, userID uint64) error {
 	ctx, cancel := context.WithTimeout(ctx, util.PushLocalTimeout)
 	defer cancel()
 
 	client := ws.Manager.GetClient(userID)
 	if client != nil {
-		for _, msg := range msgs {
+		for _, msgBytes := range msgsBytes {
 			select {
-			case client.DataBuffer <- msg:
-				return nil
+			case client.DataBuffer <- msgBytes:
 			case <-time.After(100 * time.Millisecond): // 缓冲区满则阻塞等待
 				return bufio.ErrBufferFull
 			}
@@ -247,18 +229,12 @@ func (ps *PushService) pushLocal(ctx context.Context, userID uint64, msgs []ws.M
 }
 
 // saveOffline 保存离线消息
-func (ps *PushService) saveOffline(ctx context.Context, msg ws.Msg) error {
+func (ps *PushService) saveOffline(ctx context.Context, msgBytes []byte, receiverID uint64, conversationID string, seqID uint64) (err error) {
 	zAddCtx, cancel := context.WithTimeout(ctx, util.RedisZAddTimeout)
 	defer cancel()
 
-	log.Printf("saveOffline 保存离线消息, 接收方: %d 群组: %s", msg.GetReceiverID(), msg.GetConversationID())
-	offlineMsgBoxKey := util.GetRedisBoxKey(msg.GetReceiverID(), msg.GetConversationID())
-	msgByte, err := msg.Serialize()
-	if err != nil {
-		zap.L().Error("序列化消息失败", zap.Error(err))
-		return ErrMarshalJSON
-	}
-	if err = ps.redisCache.ZAdd(zAddCtx, offlineMsgBoxKey, float64(msg.GetSeqID()), msgByte, util.RedisOfflineExpire); err != nil {
+	offlineMsgBoxKey := util.GetRedisBoxKey(receiverID, conversationID)
+	if err = ps.redisCache.ZAdd(zAddCtx, offlineMsgBoxKey, float64(seqID), msgBytes, util.RedisOfflineExpire); err != nil {
 		zap.L().Error("保存离线消息出错：", zap.Error(err))
 		return ErrServerNotAvailable
 	}
@@ -266,7 +242,7 @@ func (ps *PushService) saveOffline(ctx context.Context, msg ws.Msg) error {
 }
 
 // Publish 接收方在其他服务器，则发布订阅至redis
-func (ps *PushService) Publish(ctx context.Context, receiverID uint64, serveID string, msg ws.Msg) error {
+func (ps *PushService) Publish(ctx context.Context, receiverID uint64, serveID string, msgBytes []byte) error {
 	// 构造Payload并序列化（处理错误）
 	payLoad := &PushPayLoad{
 		Msg:          msgBytes,
@@ -319,7 +295,7 @@ func (ps *PushService) Subscribe(ctx context.Context, channel string) {
 				continue
 			}
 			if payLoad.TargetServer == util.ServerID {
-				_ = ps.pushLocal(ctx, payLoad.ReceiverID, [][]byte{payLoad.Msg})
+				_ = ps.pushLocal(ctx, [][]byte{payLoad.Msg}, payLoad.ReceiverID)
 			}
 		}
 	}

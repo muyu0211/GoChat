@@ -343,10 +343,6 @@ func (c *ChatService) HandleGroupChatMsg(ctx context.Context, client *ws.Client,
 		return err
 	}
 
-	// util.SafeGo(func() {
-	// 	c.asyncFanOutOnWrite(req.GroupKeyID, req.ReceiverID, req.SenderID, msg)
-	// })
-
 	return nil
 }
 

@@ -344,14 +344,14 @@ func (gs *GroupService) flushAll() {
 
 	// 使用协程池并发处理数据
 	for gID, batch := range snapshot {
-		// 注意：在循环中提交任务，必须处理变量捕获问题(闭包变量问题)
+		// 注意：在循环中提交协程池任务，必须处理变量捕获问题(闭包变量问题)
 		currGID := gID
 		currBatch := batch
 
 		// 1. 推送消息
 		err1 := gs.pushPool.Submit(func() {
 			pushCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			gs.pushService.BatchPush(pushCtx, batch.msgs, batch.memberIDs)
+			gs.pushService.BatchPush(pushCtx, currBatch.msgs, currBatch.memberIDs)
 			cancel()
 		})
 
