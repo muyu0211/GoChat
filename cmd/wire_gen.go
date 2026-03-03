@@ -38,6 +38,7 @@ func InitializeApp() (*App, error) {
 	pushService := service.NewPushService(redisCache, userService)
 	chatRepo := repository.NewChatRepo(db)
 	groupMsgRepo := repository.NewGroupMsgRepo(db)
+	groupRepo := repository.NewGroupRepo(db)
 	config := providerConfig()
 	ackProducer, err := providerKafkaACKProducer(config)
 	if err != nil {
@@ -47,9 +48,8 @@ func InitializeApp() (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	chatService := service.NewChatService(seqFactoryService, pushService, userService, chatRepo, convRepo, groupMsgRepo, txManager, redisCache, ackProducer, ackConsumer)
+	chatService := service.NewChatService(seqFactoryService, pushService, userService, chatRepo, convRepo, groupMsgRepo, groupRepo, txManager, redisCache, ackProducer, ackConsumer)
 	syncService := service.NewSyncService(redisCache, chatRepo, convRepo)
-	groupRepo := repository.NewGroupRepo(db)
 	groupMsgProducer, err := providerKafkaGroupMessageProducer(config)
 	if err != nil {
 		return nil, err

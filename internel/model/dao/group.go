@@ -33,7 +33,7 @@ type GroupMemberModel struct {
 	MuteEndTime int64     `gorm:"default:0"`                                  // 禁言截止时间戳 (0代表不禁言)
 	Nickname    string    `gorm:"type:varchar(64)"`                           // 我在群里的昵称
 	IsDisturb   bool      `gorm:"default:false"`                              // 是否免打扰
-	IsPinned    bool      `gorm:"default:false"`                              // 是否置顶该群
+	Status      string    `gorm:"default:0"`                                  // 状态: 0-正常, 1-禁言
 	JoinTime    time.Time `gorm:"autoCreateTime"`                             // 入群时间
 	JoinSource  byte      `gorm:"default:0"`                                  // 入群方式: 0-扫码, 1-邀请, 2-搜索
 	CreatedAt   time.Time

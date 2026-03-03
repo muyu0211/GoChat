@@ -6,7 +6,7 @@ import (
 	"GoChat/pkg/util"
 	"context"
 	"fmt"
-	"log"
+	"strconv"
 	"time"
 
 	"go.uber.org/zap"
@@ -80,7 +80,6 @@ func (sf *SeqFactoryService) CheckAndSetDedupWithSeq(
 		if seqID, err = sf.initSeqIfNeeded(ctx, userID, conversationID, seqKey); err != nil {
 			return false, 0, fmt.Errorf("init seqID failed: %w", err)
 		}
-		log.Printf("初始化序号seq：%d, err: %v", seqID, err)
 		return false, seqID, nil
 	default:
 		return false, uint64(ret), nil
@@ -94,27 +93,48 @@ func (sf *SeqFactoryService) initSeqIfNeeded(
 	conversationID string,
 	seqKey string,
 ) (uint64, error) {
+	// 0. 获取分布式锁uuid
+	requestID := util.GetUUID()
 
-	// 1. 尝试获取初始化锁（5 秒）
+	// 1. 尝试获取分布式初始化锁（5 秒）
 	lockKey := util.GetRedisSeqLockKey(conversationID)
-	ok, err := sf.chatCache.SetNX(ctx, lockKey, 1, 5*time.Second)
+	var ok bool
+	err := util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
+		var err error
+		ok, err = sf.chatCache.AcquireLock(ctx, lockKey, requestID, 30*time.Second)
+		return err
+	})
 	if err != nil {
+		zap.L().Warn("重试获取分布式锁失败", zap.Error(err), zap.String("lockKey", lockKey))
 		return 0, err
 	}
 
+	// 2. 流程结束释放分布式锁
+	defer func() {
+		// TODO: 使用lua脚本释放锁
+		_, err = sf.chatCache.Unlock(ctx, lockKey, requestID)
+		if err != nil {
+			zap.L().Warn("释放锁失败", zap.Error(err), zap.String("lockKey: ", lockKey))
+		}
+	}()
+
 	if !ok {
-		// 2. 其他 goroutine 正在初始化，等待一下
+		// 其他 goroutine 正在初始化，等待一下
 		time.Sleep(20 * time.Millisecond)
 		return 0, nil
 	}
 
-	// 3. double check：防止重复初始化
-	exist, err := sf.chatCache.Exists(ctx, seqKey)
+	// 3. double check：检查seqID是否已经写入缓存, 防止重复初始化
+	lastSeqStr, exist, err := sf.chatCache.GetWithExists(ctx, seqKey)
 	if err != nil {
 		return 0, err
 	}
 	if exist {
-		return 0, nil
+		seq, err := strconv.ParseUint(lastSeqStr, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		return seq, nil
 	}
 
 	// 4. 从 DB 读取 lastSeq
@@ -125,6 +145,8 @@ func (sf *SeqFactoryService) initSeqIfNeeded(
 		lastSeq = 1
 	}
 
-	// 5. 初始化 seqKey（不设置 TTL）
-	return lastSeq, sf.chatCache.Set(ctx, seqKey, lastSeq, 0)
+	// 5. 把 seqID 放入缓存中（不设置 TTL）
+	_ = sf.chatCache.Set(ctx, seqKey, lastSeq, 0)
+
+	return lastSeq, nil
 }

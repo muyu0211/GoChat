@@ -19,6 +19,7 @@ type ICacheRepository interface {
 	TxPipeline() redis.Pipeliner
 	Exists(ctx context.Context, keys ...string) (bool, error)
 	Get(context.Context, string, interface{}) (bool, error)
+	GetWithExists(context.Context, string) (string, bool, error)
 	Set(context.Context, string, interface{}, time.Duration) error
 	Delete(context.Context, ...string) error
 	Incr(context.Context, string) (int64, error)
@@ -29,7 +30,7 @@ type ICacheRepository interface {
 	ZAdd(ctx context.Context, key string, score float64, member []byte, expire time.Duration) error
 	ZRange(ctx context.Context, key string, start uint64, limit int64) ([][]byte, bool, error)
 	HSet(ctx context.Context, key string, TTL time.Duration, fields map[string]interface{}) error
-	HGet(ctx context.Context, key string, field string) (string, error)
+	HGetWithExists(ctx context.Context, key string, field string) (string, bool, error)
 	HGetAll(ctx context.Context, key string) (map[string]string, error)
 	HMGet(ctx context.Context, key string, fields ...string) ([]interface{}, error)
 	SAdd(ctx context.Context, key string, expire time.Duration, members interface{}) error
@@ -40,6 +41,10 @@ type ICacheRepository interface {
 
 	DedupAndSeq(ctx context.Context, keys []string, expire time.Duration) (int64, error)
 	UpdateUserConv(ctx context.Context, key string, expire time.Duration, convIDs []string) error
+
+	AcquireLock(ctx context.Context, lockKey string, requestID string, ttl time.Duration) (bool, error)
+	Unlock(ctx context.Context, lockKey string, requestID string) (bool, error)
+	RenewLock(ctx context.Context, lockKey string, requestID string, ttl time.Duration) (bool, error)
 }
 
 var (
@@ -96,6 +101,18 @@ func (rc *RedisCache) Get(ctx context.Context, key string, dest interface{}) (bo
 		return true, ErrUnmarshal
 	}
 	return true, nil
+}
+
+// GetWithExists 通用方法（自动反序列化）
+func (rc *RedisCache) GetWithExists(ctx context.Context, key string) (string, bool, error) {
+	data, err := rc.rdb.Get(ctx, key).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return "", false, nil // 键不存在不视为错误
+	} else if err != nil {
+		zap.L().Error("cache get error", zap.Error(err), zap.String("key", key))
+		return "", false, ErrGet
+	}
+	return string(data), true, nil
 }
 
 func (rc *RedisCache) Delete(ctx context.Context, keys ...string) error {
@@ -203,16 +220,17 @@ func (rc *RedisCache) HSet(ctx context.Context, key string, TTL time.Duration, f
 	return err
 }
 
-func (rc *RedisCache) HGet(ctx context.Context, key string, field string) (string, error) {
+func (rc *RedisCache) HGetWithExists(ctx context.Context, key string, field string) (string, bool, error) {
 	result, err := rc.rdb.HGet(ctx, key, field).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return "", nil
+			return "", false, nil
 		}
-		return "", err
+		return "", false, err
 	}
-	return result, err
+	return result, true, nil
 }
+
 func (rc *RedisCache) HMGet(ctx context.Context, key string, fields ...string) ([]interface{}, error) {
 	result, err := rc.rdb.HMGet(ctx, key, fields...).Result()
 	if err != nil {
@@ -301,4 +319,33 @@ func (rc *RedisCache) DedupAndSeq(ctx context.Context, keys []string, expire tim
 func (rc *RedisCache) UpdateUserConv(ctx context.Context, key string, expire time.Duration, convIDs []string) error {
 	// 使用lua脚本：先对Set进行删除，再对Set进行添加
 	return nil
+}
+
+// AcquireLock 获取分布式锁
+func (rc *RedisCache) AcquireLock(ctx context.Context, lockKey string, requestID string, ttl time.Duration) (bool, error) {
+	suc, err := rc.rdb.SetNX(ctx, lockKey, requestID, ttl).Result()
+	if err != nil {
+		return false, fmt.Errorf("acquire lock failed: %w", err)
+	}
+	return suc, nil
+}
+
+// Unlock 分布式锁 解锁
+func (rc *RedisCache) Unlock(ctx context.Context, lockKey string, requestID string) (bool, error) {
+	// 使用lua脚本：先检查锁是否存在，再对锁进行解锁
+	suc, err := rc.rdb.Eval(ctx, UnlockLua, []string{lockKey}, requestID).Result()
+	if err != nil {
+		return false, fmt.Errorf("release lock failed: %w", err)
+	}
+	return suc.(int64) == 1, nil
+}
+
+// RenewLock 分布式锁 锁续约
+func (rc *RedisCache) RenewLock(ctx context.Context, lockKey string, requestID string, ttl time.Duration) (bool, error) {
+	// 使用lua脚本：先检查锁是否存在，再对锁进行续约
+	suc, err := rc.rdb.Eval(ctx, RenewLockLua, []string{lockKey}, requestID, ttl).Result()
+	if err != nil {
+		return false, fmt.Errorf("renew lock failed: %w", err)
+	}
+	return suc.(int64) == 1, nil
 }

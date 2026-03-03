@@ -15,6 +15,7 @@ import (
 
 	"github.com/bwmarrin/snowflake"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"gopkg.in/gomail.v2"
 )
@@ -248,4 +249,8 @@ func Uniq[T comparable](slice []T) []T {
 		}
 	}
 	return uniq
+}
+
+func GetUUID() string {
+	return uuid.New().String()
 }

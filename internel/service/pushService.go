@@ -67,7 +67,6 @@ func (ps *PushService) BatchPush(ctx context.Context, msgs []ws.Msg, receiversID
 	if len(msgs) == 0 || len(receiversIDs) == 0 {
 		return nil
 	}
-	// 0. 接收者置零
 
 	// 1. 批量序列化
 	msgsBytes, err := ps.batchSerialize(msgs)

@@ -20,3 +20,32 @@ end
 -- 3. 正常路径：递增并返回
 return redis.call('INCR', seqKey)
 `
+
+/**
+ * UnlockLua 解锁脚本
+ * @param lockKey 锁键
+ * @param requestID 请求ID
+ * @return 1 -成功解锁，0 -解锁失败
+ */
+var UnlockLua = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+else
+    return 0
+end
+`
+
+/**
+ * RenewLockLua 续约锁脚本
+ * @param lockKey 锁键
+ * @param requestID 请求ID
+ * @param ttl 锁的过期时间
+ * @return 1 -续期成功, 0 -续期失败
+ */
+var RenewLockLua = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('EXPIRE', KEYS[1], ARGV[2])
+else
+    return 0
+end
+ `
