@@ -12,7 +12,8 @@ import (
 type IGroupRepo interface {
 	IBaseRepository[dao.GroupModel]
 	CreateMemberBatch(ctx context.Context, members []dao.GroupMemberModel, batchSize int) error
-	FindGroupUser(ctx context.Context, groupID uint64, userID uint64) (bool, error)
+	FindGroupUserByID(ctx context.Context, groupID uint64, userID uint64) (bool, error)
+	FindGroupByID(ctx context.Context, groupID uint64) (bool, error)
 }
 
 type GroupRepo struct {
@@ -69,4 +70,14 @@ func (r *GroupRepo) CreateMemberBatch(ctx context.Context, members []dao.GroupMe
 		return err
 	}
 	return nil
+}
+
+func (r *GroupMsgRepo) FindGroupByID(ctx context.Context, groupID uint64) (bool, error) {
+	var count int64
+	db := r.getTx(ctx).WithContext(ctx)
+	if err := db.Model(&dao.GroupModel{}).Where("id = ?", groupID).Count(&count).Error; err != nil {
+		zap.L().Error("查找群聊失败", zap.Error(err))
+		return false, err
+	}
+	return count > 0, nil
 }

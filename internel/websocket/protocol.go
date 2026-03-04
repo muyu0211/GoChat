@@ -31,7 +31,7 @@ type SendMsg struct {
 	Cmd            string `json:"cmd"`
 	GroupKeyID     int64  `json:"group_key_id"`
 	ConversationID string `json:"conversation_id"`
-	ClientMsgID    string `json:"client_msg_id"` // 每条消息的全局唯一ID（客户端生成），可以是UUID, TODO: 区分网络重试和业务重试()
+	ClientMsgID    string `json:"client_msg_id"` // 每条消息的全局唯一ID（客户端生成），可以是UUID
 	Flag           uint8  `json:"flag"`
 	Content        string `json:"content"`
 	SenderID       uint64 `json:"sender_id"`
@@ -54,6 +54,7 @@ type ReplyMsg struct {
 	TimeStamp      int64  `json:"time_stamp"`
 	SeqID          uint64 `json:"seq_id"`
 	AckID          uint64 `json:"ack_id"`
+	MsgType        byte   `json:"msg_type"`
 }
 
 // AckPayload 客户端发送的确认包

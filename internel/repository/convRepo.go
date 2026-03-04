@@ -136,18 +136,30 @@ func (r *ConvRepo) UpdateLastAck(ctx context.Context, userID uint64, conversatio
 }
 
 func (r *ConvRepo) BulkUpdateLastAck(ctx context.Context, updates []*dto.UpdatesAck) error {
+	if len(updates) == 0 {
+		return nil
+	}
 	db := r.getTx(ctx)
 	// 拼接sql
 	var sql strings.Builder
 	args := make([]interface{}, 0, 5*len(updates))
+
+	// 1. 构建CASE语句更新last_ack_id
 	sql.WriteString("UPDATE conversation SET last_ack_id = CASE")
 	for _, item := range updates {
 		sql.WriteString("WHEN owner_id = ? AND conversation_id = ? THEN ?")
 		args = append(args, item.UserID, item.ConversationID, item.LastAckID)
 	}
-	sql.WriteString("ELSE last_ack_id END")
-	sql.WriteString(", unread_count = 0")
-	sql.WriteString(" WHERE ")
+	sql.WriteString(" ELSE last_ack_id END")
+	sql.WriteString(", unread_count = CASE")
+	for _, item := range updates {
+		sql.WriteString(" WHEN owner_id = ? AND conversation_id = ? THEN 0")
+		args = append(args, item.UserID, item.ConversationID)
+	}
+	sql.WriteString(" ELSE unread_count END")
+
+	// 3. 构建 WHERE 条件
+	sql.WriteString(" WHERE (")
 	for j, item := range updates {
 		if j > 0 {
 			sql.WriteString(" OR ")
@@ -155,10 +167,11 @@ func (r *ConvRepo) BulkUpdateLastAck(ctx context.Context, updates []*dto.Updates
 		sql.WriteString("(owner_id = ? AND conversation_id = ?)")
 		args = append(args, item.UserID, item.ConversationID)
 	}
+	sql.WriteString(")")
+
 	if err := db.Model(&dao.ConversationModel{}).WithContext(ctx).Exec(sql.String(), args...).Error; err != nil {
 		return err
 	}
-
 	return nil
 }
 
@@ -170,7 +183,7 @@ func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, recei
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"updated_at":   updatedAt,
 			"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
-			"last_ack_id":  seqID,
+			"last_ack_id":  gorm.Expr("GREAEST(last_ack_id, ?)", seqID),
 			"unread_count": 0,
 		}), // 插入冲突时则进行更新操作
 	}).Create(&dao.ConversationModel{

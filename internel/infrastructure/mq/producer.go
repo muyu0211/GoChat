@@ -49,7 +49,6 @@ func NewKafkaProducer(brokers []string, cfg *config.BusinessConfig) (Producer, e
 
 // Publish 发布消息
 func (kp *kafkaProducer) Publish(ctx context.Context, key, msg []byte) error {
-	// 带重试的写入
 	if err := util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
 		return kp.w.WriteMessages(ctx, kafka.Message{Key: key, Value: msg})
 	}); err != nil {

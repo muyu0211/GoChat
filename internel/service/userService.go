@@ -56,7 +56,7 @@ func (us *UserService) CreateUser(ctx context.Context, user *dao.UserBasicModel)
 
 func (us *UserService) SendEmailCode(ctx context.Context, title, email string) (string, error) {
 	// 解析邮件模板
-	tmp, err := template.ParseFiles("../web/template/email.html")
+	tmp, err := template.ParseFiles("./web/template/email.html")
 	if err != nil {
 		zap.L().Warn("mail.html not found in path",
 			zap.Error(err))

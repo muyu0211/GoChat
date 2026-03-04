@@ -141,7 +141,7 @@ func (sf *SeqFactoryService) initSeqIfNeeded(
 	lastSeq, err := sf.convRepo.GetLastSeqID(ctx, userID, conversationID)
 	if err != nil || lastSeq == 0 {
 		// 新会话兜底
-		zap.L().Error("GetLastSeqID failed", zap.Error(err))
+		zap.L().Warn("GetLastSeqID failed, use default seqID 1", zap.Error(err))
 		lastSeq = 1
 	}
 

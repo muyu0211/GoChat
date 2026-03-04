@@ -64,6 +64,5 @@ func Retry(maxTimes int, interval time.Duration, fn func() error) error {
 		fullName = funcInfo.Name()
 	}
 
-	zap.L().Warn("方法重试失败", zap.String("方法", fullName), zap.Int("重试次数", maxTimes), zap.Error(err))
 	return fmt.Errorf("方法: %s重试%d次后失败：%w", fullName, maxTimes, err)
 }

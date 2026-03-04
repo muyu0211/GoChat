@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"sync"
 	"time"
@@ -173,7 +174,7 @@ func (gs *GroupService) NewGroup(ctx context.Context, g *dto.CreateGroupReq) (*d
 		convs := make([]dao.ConversationModel, 0, len(memMap))
 		for memID, _ := range memMap {
 			convs = append(convs, dao.ConversationModel{
-				ConversationID: strconv.FormatInt(pID, 10), // 使用群组的主键 ID作为会话 ID
+				ConversationID: strconv.FormatUint(gID, 10), // 使用群组ID作为会话 ID
 				OwnerID:        memID,
 			})
 		}
@@ -186,7 +187,7 @@ func (gs *GroupService) NewGroup(ctx context.Context, g *dto.CreateGroupReq) (*d
 
 	// 事务执行出错，进行回滚后返回
 	if err != nil {
-		zap.L().Error("Failed to create group", zap.Error(err))
+		zap.L().Warn("Failed to create group", zap.Error(err))
 		return nil, err
 	}
 
@@ -197,7 +198,7 @@ func (gs *GroupService) NewGroup(ctx context.Context, g *dto.CreateGroupReq) (*d
 		memRedisPayload[strconv.FormatUint(memID, 10)] = "0" // 群刚被创建时，没有人被禁言
 	}
 	if err := gs.redisCache.HSet(ctx, groupIDKey, util.RedisGroupIDExpire, memRedisPayload); err != nil {
-		zap.L().Error("Failed to add group member to redis", zap.Error(err))
+		zap.L().Warn("Failed to add group member to redis", zap.Error(err))
 	}
 
 	// 6. 将创建群聊成功的消息放入MQ
@@ -247,6 +248,7 @@ func (gs *GroupService) pushGroupCreateEventToMQ(groupID uint64, members map[uin
 
 // handlerGroupMsgFromMQ 处理从MQ中获取到的群消息
 func (gs *GroupService) handlerGroupMsgFromMQ(ctx context.Context, key, value []byte) error {
+	log.Println("接收到群聊消息, key: ", string(key))
 	// 1. 接收到群聊消息
 	var event = &mq.GroupMsgEvent{}
 	if err := event.Deserialize(value); err != nil {
@@ -413,7 +415,7 @@ func (gs *GroupService) flushToDB(groupID uint64, batch *groupBatch) {
 					SeqID:      m.SeqID,
 					SenderID:   m.SenderID,
 					Content:    m.Content,
-					Type:       1, // 默认为文本消息
+					Type:       m.MsgType, // 默认为文本消息
 					CreatedAt:  time.UnixMilli(m.TimeStamp),
 				})
 

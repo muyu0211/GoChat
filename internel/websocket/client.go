@@ -160,6 +160,7 @@ func (c *Client) ReadPump() {
 			zap.L().Error("序列化消息失败", zap.Error(err))
 			continue
 		}
+		req.SenderID = c.UserID
 
 		ctx := context.WithValue(context.Background(), util.CtxUserIDKey, c.UserID)
 		err = c.wsRouter.Dispatch(ctx, c, &req)
@@ -168,8 +169,6 @@ func (c *Client) ReadPump() {
 				zap.String("cmd", req.Cmd),
 				zap.Error(err),
 			)
-
-			// TODO: 失败则给客户端发送错误信息
 		}
 	}
 }
