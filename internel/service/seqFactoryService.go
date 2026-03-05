@@ -96,7 +96,7 @@ func (sf *SeqFactoryService) initSeqIfNeeded(
 	// 0. 获取分布式锁uuid
 	requestID := util.GetUUID()
 
-	// 1. 尝试获取分布式初始化锁（5 秒）
+	// 1. 尝试获取分布式初始化锁
 	lockKey := util.GetRedisSeqLockKey(conversationID)
 	var ok bool
 	err := util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
@@ -111,7 +111,6 @@ func (sf *SeqFactoryService) initSeqIfNeeded(
 
 	// 2. 流程结束释放分布式锁
 	defer func() {
-		// TODO: 使用lua脚本释放锁
 		_, err = sf.chatCache.Unlock(ctx, lockKey, requestID)
 		if err != nil {
 			zap.L().Warn("释放锁失败", zap.Error(err), zap.String("lockKey: ", lockKey))

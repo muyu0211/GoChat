@@ -45,8 +45,8 @@ services:
 
   # Kafka服务（单节点模式，controller+broker）
   # kafka源：compose启动前先单独拉取kafka镜像
-#  docker pull swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kafka:3.6.2
-#  docker tag  swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kafka:3.6.2  docker.io/bitnami/kafka:3.6.2
+  #  docker pull swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kafka:3.6.2
+  #  docker tag  swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/bitnami/kafka:3.6.2  docker.io/bitnami/kafka:3.6.2
   kafka:
     image: 'bitnami/kafka:3.6.2'
     container_name: kafka
@@ -77,6 +77,49 @@ services:
       interval: 15s
       timeout: 10s
       retries: 5
+
+  jenkines:
+    image: jenkins/jenkins:lts
+    container_name: jenkins
+    restart: always
+    ports: 
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      # Jenkins 主目录（配置、插件、构建数据）
+      - jenkins_home:/var/jenkins_home
+      # 挂载宿主机 Docker（让 Jenkins 能操作宿主机 Docker）
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 挂载宿主机 Docker 二进制文件（可选，若需在 Jenkins 内用 docker 命令）
+      - /usr/bin/docker:/usr/bin/docker
+      # 同步时区（解决 Jenkins 日志时间和宿主机不一致）
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    # 权限配置（解决 Docker 挂载权限问题）
+    user: root
+    # 环境变量（可选，自定义 Jenkins 配置）
+    environment:
+      # 自定义 Jenkins 工作目录（和挂载卷一致）
+      - JENKINS_HOME=/var/jenkins_home
+      # 跳过插件安装向导（可选）
+      # - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
+      # 时区设置（亚洲/上海）
+      - TZ=Asia/Shanghai
+    # 资源限制（可选，防止 Jenkins 占用过多资源）
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+
+volumes:  
+  jenkins_home:
+    driver: local  # 驱动还是 local（必须）
+    driver_opts:
+      # 关键：指定命名卷的存储路径为 /home/jenkins_home
+      type: none
+      o: bind
+      device: /home/jenkins  # 你的自定义路径
 
 # 定义网络（规范：改为小写，与服务内的网络名保持一致）
 networks:

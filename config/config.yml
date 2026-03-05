@@ -18,9 +18,9 @@ mysql:
     password: "021103"
     dbname: "ginchat_test"
     # 连接池配置
-  max_open_conns: 150    # 最大打开的连接数
-  max_idle_conns: 10     # 最大空闲连接数
-  conn_max_lifetime: 180 # 连接可复用的最大时间 (秒)
+  max_open_conns: 500    # 最大打开的连接数
+  max_idle_conns: 100    # 最大空闲连接数
+  conn_max_lifetime: 1800 # 连接可复用的最大时间 (秒)
 
 redis:
   host: "192.168.74.128"

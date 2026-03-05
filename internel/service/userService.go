@@ -217,14 +217,16 @@ func (us *UserService) LoginInPW(ctx context.Context, req *dto.LoginRequest) (*d
 
 	// 2. 查找数据库，返回用户数据
 	var user *dao.UserBasicModel
-	var err error
-	if flag == email {
-		user, err = us.userRepo.GetByEmail(ctx, req.EmailOrPhone)
-	}
-	if flag == phone {
-		user, err = us.userRepo.GetByPhone(ctx, req.EmailOrPhone)
-	}
-
+	err := util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
+		var dbErr error
+		if flag == email {
+			user, dbErr = us.userRepo.GetByEmail(ctx, req.EmailOrPhone)
+		}
+		if flag == phone {
+			user, dbErr = us.userRepo.GetByPhone(ctx, req.EmailOrPhone)
+		}
+		return dbErr
+	})
 	if err != nil {
 		return nil, errors.New("数据库炸了") // 数据库炸了
 	}
@@ -367,9 +369,17 @@ func (us *UserService) CheckUserExistsAndActive(ctx context.Context, userID uint
 	}
 
 	// 2. Redis 中没有，查询数据库
-	user, err := us.userRepo.GetByID(ctx, userID)
+	var user *dao.UserBasicModel
+	err = util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
+		var dbErr error
+		user, dbErr = us.userRepo.GetByID(ctx, userID)
+		if dbErr != nil {
+			return fmt.Errorf("UserID: %d, err: %w", userID, dbErr)
+		}
+		return nil
+	})
 	if err != nil {
-		zap.L().Error("查询用户失败", zap.Uint64("userID", userID), zap.Error(err))
+		zap.L().Warn("查询用户失败", zap.Error(err))
 		return false, ErrServerNotAvailable
 	}
 

@@ -3,7 +3,6 @@ package websocket
 import (
 	"GoChat/pkg/util"
 	"context"
-	"log"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -123,16 +122,14 @@ func (c *Client) ReadPump() {
 	c.conn.SetReadLimit(maxMessageSize)
 
 	// 2. 设置初始的读取死线 (pongWait秒内未收到消息则断开连接)
-	err := c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	if err != nil {
+	if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
 		zap.L().Error("设置读超时失败", zap.Error(err))
 		return
 	}
 
 	// 3. 设置 Pong 处理器
 	c.conn.SetPongHandler(func(appData string) error {
-		err = c.conn.SetReadDeadline(time.Now().Add(pongWait))
-		if err != nil {
+		if err := c.conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
 			zap.L().Error("设置读超时失败", zap.Error(err))
 			return err
 		}
@@ -146,8 +143,6 @@ func (c *Client) ReadPump() {
 			// 判断是否是意外关闭 (如果不是 1000 或 1001，则视为异常并打印日志)
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				zap.L().Error("WebSocket 读取异常", zap.Error(err))
-			} else {
-				log.Println("WebSocket 已关闭")
 			}
 			return
 		}

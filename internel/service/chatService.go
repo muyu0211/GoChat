@@ -158,6 +158,7 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 		zap.L().Warn("消息去重/取号失败", zap.Error(err), zap.String("conversationID", req.ConversationID))
 	}
 	if isDup { // 消息重复
+		zap.L().Warn("消息重复", zap.String("conversationID", req.ConversationID))
 		util.SafeGo(func() {
 			c.pushMsg(ctx, ack.SetContent("消息重复"))
 		})

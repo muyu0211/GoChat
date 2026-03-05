@@ -303,6 +303,10 @@ func (rc *RedisCache) ZRemRange(ctx context.Context, key string, score interface
 	return err
 }
 
+/**
+ * DedupAndSeq 去重和取号操作：
+ * return: 执行出错或数据转换失败时返回err; 消息重复返回0, 没有序号key返回-1, 有key返回自增后的int
+ */
 func (rc *RedisCache) DedupAndSeq(ctx context.Context, keys []string, expire time.Duration) (int64, error) {
 	var v int64
 	var ok bool
