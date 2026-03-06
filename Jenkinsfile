@@ -47,20 +47,19 @@ pipeline {
 
                     echo "===== 本地 MD5 ====="
                     md5sum ${APP_NAME}
-                    pwd ${APP_NAME}
 
+                    # 停止当前服务
                     ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "
-                    pkill -f ${APP_NAME} || true
-                    sleep 2
-                    rm -f ${TARGET_PATH}/${APP_NAME}
-                    mkdir -p ${TARGET_PATH}
+                        pkill -f ${APP_NAME} || true
                     "
 
+                    # 上传文件
                     scp -o StrictHostKeyChecking=no ${APP_NAME} ${TARGET_USER}@${TARGET_HOST}:${TARGET_PATH}/
 
+                    # 启动服务
                     ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "
                         cd ${TARGET_PATH}
-                        chmod +x ${APP_NAME}
+                        chmod +x ./${APP_NAME}
                         nohup ./${APP_NAME} > server.log 2>&1 &
                     "
                     '''
