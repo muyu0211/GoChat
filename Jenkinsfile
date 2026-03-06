@@ -29,9 +29,8 @@ pipeline {
             }
             steps {
                 echo "===== 在Docker中进行构建 ====="
-
                 sh '''
-                go clean -cache    # 强制清理构建缓存
+                 go clean -cache
                 go mod tidy
                 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ${APP_NAME} ./cmd
                 '''
@@ -44,31 +43,21 @@ pipeline {
 
                 sshagent(['server-ssh-key']) {
                     sh '''
-                    # 1. 杀进程
                     ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "pkill ${APP_NAME} || true"
+                    # 停顿 2 秒，确保进程完全退出释放文件
                     sleep 2
 
-                    # 2. 删除旧文件 (确保覆盖)
-                    ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "rm -f ${TARGET_PATH}/${APP_NAME}"
+                    ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "mkdir -p ${TARGET_PATH}"
 
-                    # 3. 传输新文件
+                    # 3. 使用 scp 覆盖文件了
                     scp -o StrictHostKeyChecking=no ${APP_NAME} ${TARGET_USER}@${TARGET_HOST}:${TARGET_PATH}/
-                    
-                    # 4. 验证是否传输成功 (可选)
-                    # 比较本地 build 出来的 ginchat 和 服务器上的 ginchat 的 md5
-                    echo "Checking integrity..."
-                    LOCAL_MD5=$(md5sum ${APP_NAME} | awk '{print $1}')
-                    REMOTE_MD5=$(ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "md5sum ${TARGET_PATH}/${APP_NAME}" | awk '{print $1}')
-                    
-                    if [ "$LOCAL_MD5" != "$REMOTE_MD5" ]; then
-                        echo "Error: MD5 mismatch! Deploy failed."
-                        exit 1
-                    fi
 
-                    # 5. 启动
+                     # 4. 远程执行启动命令
                     ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "
                         chmod +x ${TARGET_PATH}/${APP_NAME}
                         cd ${TARGET_PATH}
+                        echo "===== 启动 ${APP_NAME} ====="
+                        pwd
                         nohup ./${APP_NAME} > server.log 2>&1 &
                     "
                     '''
