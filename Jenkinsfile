@@ -14,9 +14,11 @@ pipeline {
                 echo "===== 拉取 ${APP_NAME} 代码 ====="
                 cleanWs() // 确保在拉取代码前，工作区是绝对干净的
                 git(
+                    branch: 'master',
                     url: 'git@github.com:muyu0211/GoChat.git',
                     credentialsId: 'server-ssh-key'
                 )
+                sh 'git log -1'
             }
         }
 
@@ -28,11 +30,8 @@ pipeline {
                 }
             }
             steps {
-                echo "===== 在Docker中进行构建 ====="
                 sh '''
-                echo "当前代码版本:"
-                git log -1
-
+                echo "===== 在Docker中进行构建 ====="
                 go clean -cache
                 go mod tidy
                 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ${APP_NAME} ./cmd
