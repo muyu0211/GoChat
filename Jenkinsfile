@@ -5,7 +5,7 @@ pipeline {
         APP_NAME = "ginchat"
         TARGET_HOST = "192.168.74.128"
         TARGET_USER = "root"
-        TARGET_PATH = "/home/muyu/下载"
+        TARGET_PATH = "/home/muyu/deploy"
     }
 
 
