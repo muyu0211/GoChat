@@ -56,6 +56,8 @@ pipeline {
                     ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "
                         chmod +x ${TARGET_PATH}/${APP_NAME}
                         cd ${TARGET_PATH}
+                        echo "===== 启动 ${APP_NAME} ====="
+                        pwd
                         nohup ./${APP_NAME} > server.log 2>&1 &
                     "
                     '''
