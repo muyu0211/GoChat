@@ -30,7 +30,10 @@ pipeline {
             steps {
                 echo "===== 在Docker中进行构建 ====="
                 sh '''
-                 go clean -cache
+                echo "当前代码版本:"
+                git log -1
+
+                go clean -cache
                 go mod tidy
                 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ${APP_NAME} ./cmd
                 '''
