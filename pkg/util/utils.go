@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"hash/fnv"
+	"log"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -261,5 +262,6 @@ func GetUUID() string {
 func GetAppDir() string {
 	file, _ := exec.LookPath(os.Args[0])
 	path, _ := filepath.Abs(file)
+	log.Print(filepath.Dir(path))
 	return filepath.Dir(path) // 这将返回二进制文件所在的绝对路径
 }
