@@ -13,7 +13,10 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo "===== 拉取 ${APP_NAME} 代码 ====="
-                git 'git@github.com:muyu0211/GoChat.git'
+                git(
+                    url: 'git@github.com:muyu0211/GoChat.git',
+                    credentialsId: 'server-ssh-key'
+                )
             }
         }
 
