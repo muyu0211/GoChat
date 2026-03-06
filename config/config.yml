@@ -93,14 +93,14 @@ rate_limit:
 # 日志配置
 logger:
   level: "debug"            # 日志级别
-  filename: "../logs/app.log" # 日志文件路径
+  filename: "./logs/app.log" # 日志文件路径
   max_size: 200             # 日志文件大小上限 (MB)
   max_age: 30               # 日志文件保留天数
   max_backups: 7            # 最多保留的备份文件数
   compress: true            # 是否压缩备份文件
 
 gorm_logger:
-  filename: "../logs/gorm.log" # 日志文件名称
+  filename: "./logs/gorm.log" # 日志文件名称
   slow_threshold: 100ms # 慢查询阈值
   max_size: 200             # 日志文件大小上限 (MB)
   max_age: 30               # 日志文件保留天数
@@ -108,7 +108,7 @@ gorm_logger:
   compress: true            # 是否压缩备份文件
 
 kafka_logger:
-  filename: "../logs/kafka.log" # 日志文件名称
+  filename: "./logs/kafka.log" # 日志文件名称
   max_size: 200             # 日志文件大小上限 (MB)
   max_age: 30               # 日志文件保留天数
   max_backups: 7            # 最多保留的备份文件数
