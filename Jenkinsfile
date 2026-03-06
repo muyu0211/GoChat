@@ -48,7 +48,8 @@ pipeline {
                     ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "
                         pkill ${APP_NAME} || true
                         chmod +x ${TARGET_PATH}/${APP_NAME}
-                        nohup ${TARGET_PATH}/${APP_NAME} > ${TARGET_PATH}/server.log 2>&1 &
+                        cd ${TARGET_PATH}
+                        nohup ./${APP_NAME} > ./server.log 2>&1 &
                     "
                     '''
                 }
