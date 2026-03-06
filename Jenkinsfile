@@ -57,7 +57,7 @@ pipeline {
                         cd ${TARGET_PATH}
                         echo "===== 启动 ${APP_NAME} ====="
                         pwd
-                        nohup ./${APP_NAME} > server.log 2>&1 &
+                        ./${APP_NAME} &
                     "
                     '''
                 }
