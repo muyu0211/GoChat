@@ -2,11 +2,14 @@ package logger
 
 import (
 	"GoChat/config"
+	"GoChat/pkg/util"
+	"os"
+	"path/filepath"
+
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
-	"os"
 )
 
 // StartLogger 启动日志服务
@@ -57,11 +60,11 @@ func getEncoder() zapcore.Encoder {
 
 func getWriteSyncer(cfg *config.LoggerConfig) zapcore.WriteSyncer {
 	lumberJackLogger := &lumberjack.Logger{
-		Filename:   cfg.Filename,   // 日志文件路径
-		MaxSize:    cfg.MaxSize,    // 每个日志文件的最大尺寸，单位：MB
-		MaxBackups: cfg.MaxBackups, // 保留的旧日志文件的最大数量
-		MaxAge:     cfg.MaxAge,     // 旧日志文件的最长保留天数
-		Compress:   cfg.Compress,   // 是否压缩旧日志文件
+		Filename:   filepath.Join(util.GetAppDir(), cfg.Filename), // 日志文件路径
+		MaxSize:    cfg.MaxSize,                                   // 每个日志文件的最大尺寸，单位：MB
+		MaxBackups: cfg.MaxBackups,                                // 保留的旧日志文件的最大数量
+		MaxAge:     cfg.MaxAge,                                    // 旧日志文件的最长保留天数
+		Compress:   cfg.Compress,                                  // 是否压缩旧日志文件
 	}
 	// 在开发环境下，同时输出到控制台和文件
 	if viper.GetString("app.mode") == "dev" {

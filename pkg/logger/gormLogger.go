@@ -2,8 +2,10 @@ package logger
 
 import (
 	"GoChat/config"
+	"GoChat/pkg/util"
 	"context"
 	"errors"
+	"path/filepath"
 	"time"
 
 	"go.uber.org/zap"
@@ -22,11 +24,11 @@ type zapGormAdapter struct {
 func NewGormLogger(cfg *config.GormLoggerConfig) logger.Interface {
 	// 1. 配置日志切割 (Lumberjack)
 	writeSyncer := zapcore.AddSync(&lumberjack.Logger{
-		Filename:   cfg.Filename,   // 单独的日志文件路径
-		MaxSize:    cfg.MaxSize,    // 每个日志文件最大 100MB
-		MaxBackups: cfg.MaxBackups, // 保留最近 10 个文件
-		MaxAge:     cfg.MaxAge,     // 保留最近 30 天
-		Compress:   cfg.Compress,   // 是否压缩
+		Filename:   filepath.Join(util.GetAppDir(), cfg.Filename), // 单独的日志文件路径
+		MaxSize:    cfg.MaxSize,                                   // 每个日志文件最大 100MB
+		MaxBackups: cfg.MaxBackups,                                // 保留最近 10 个文件
+		MaxAge:     cfg.MaxAge,                                    // 保留最近 30 天
+		Compress:   cfg.Compress,                                  // 是否压缩
 	})
 
 	// 2. 配置编码器 (Encoder) - 建议开发环境用 Console，生产用 JSON

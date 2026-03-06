@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math/rand"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -253,4 +256,10 @@ func Uniq[T comparable](slice []T) []T {
 
 func GetUUID() string {
 	return uuid.New().String()
+}
+
+func GetAppDir() string {
+	file, _ := exec.LookPath(os.Args[0])
+	path, _ := filepath.Abs(file)
+	return filepath.Dir(path) // 这将返回二进制文件所在的绝对路径
 }
