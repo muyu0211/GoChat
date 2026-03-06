@@ -47,12 +47,13 @@ pipeline {
 
                     echo "===== 本地 MD5 ====="
                     md5sum ${APP_NAME}
+                    pwd ${APP_NAME}
 
                     ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "
-                        pkill -f ${APP_NAME} || true
-                        sleep 2
-                        rm -f ${TARGET_PATH}/${APP_NAME}
-                        mkdir -p ${TARGET_PATH}
+                    pkill -f ${APP_NAME} || true
+                    sleep 2
+                    rm -f ${TARGET_PATH}/${APP_NAME}
+                    mkdir -p ${TARGET_PATH}
                     "
 
                     scp -o StrictHostKeyChecking=no ${APP_NAME} ${TARGET_USER}@${TARGET_HOST}:${TARGET_PATH}/
