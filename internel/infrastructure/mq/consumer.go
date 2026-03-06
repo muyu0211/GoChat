@@ -52,7 +52,6 @@ func (kc *kafkaConsumer) RegisterHandler(handler MessageHandler) {
 
 // Consume 启动消费者 (协程启动)
 func (kc *kafkaConsumer) Consume(ctx context.Context) {
-	logger.KafkaLogger.Info("开始执行消费者协程")
 	for {
 		// 0. 监听服务是否关闭
 		select {

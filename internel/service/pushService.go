@@ -50,7 +50,7 @@ func NewPushService(rc *cache.RedisCache, us *UserService) *PushService {
 
 	// 启动redis订阅
 	util.SafeGo(func() {
-		log.Println("启动redis 订阅")
+		log.Println("启动redis订阅")
 		ps.Subscribe(context.Background(), util.GetRedisPubSubChannel())
 	})
 
