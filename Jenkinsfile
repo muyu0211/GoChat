@@ -14,7 +14,7 @@ pipeline {
             steps {
                 cleanWs()       // 清空工作区
                 git(
-                    branch: 'main',
+                    branch: 'master',
                     url: 'git@github.com:muyu0211/GoChat.git',
                     credentialsId: 'server-ssh-key'
                 )
