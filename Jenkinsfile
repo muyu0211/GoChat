@@ -35,6 +35,7 @@ pipeline {
                 go clean -cache
                 go mod tidy
                 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ${APP_NAME} ./cmd
+                md5sum ${APP_NAME}
                 '''
             }
         }
@@ -46,10 +47,8 @@ pipeline {
                 sshagent(['server-ssh-key']) {
                     sh '''
                     ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "pkill ${APP_NAME} || true"
-                    # 停顿 2 秒，确保进程完全退出释放文件
+                    
                     sleep 2
-
-                    ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "mkdir -p ${TARGET_PATH}"
 
                     # 3. 使用 scp 覆盖文件了
                     scp -o StrictHostKeyChecking=no ${APP_NAME} ${TARGET_USER}@${TARGET_HOST}:${TARGET_PATH}/

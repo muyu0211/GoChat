@@ -44,6 +44,7 @@ func main() {
 
 	// 初始化配置文件
 	cfg := config.LoadConfig()
+	log.Println("BUILD VERSION: 2026-03-06-01")
 	log.Println("APP FILE DIR:", util.GetAppDir())
 
 	// 服务启动
