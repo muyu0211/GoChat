@@ -43,13 +43,20 @@ pipeline {
 
                 sshagent(['server-ssh-key']) {
                     sh '''
+                    ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "pkill ${APP_NAME} || true"
+                    # 停顿 2 秒，确保进程完全退出释放文件
+                    sleep 2
+
+                    ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "mkdir -p ${TARGET_PATH}"
+
+                    # 3. 老进程已经停止，现在可以安全地使用 scp 覆盖文件了
                     scp -o StrictHostKeyChecking=no ${APP_NAME} ${TARGET_USER}@${TARGET_HOST}:${TARGET_PATH}/
 
+                     # 4. 远程执行启动命令
                     ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "
-                        pkill ${APP_NAME} || true
                         chmod +x ${TARGET_PATH}/${APP_NAME}
                         cd ${TARGET_PATH}
-                        nohup ./${APP_NAME} > ./server.log 2>&1 &
+                        nohup ./${APP_NAME} > server.log 2>&1 &
                     "
                     '''
                 }
