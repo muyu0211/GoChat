@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"embed"
 	"fmt"
 	"time"
 
@@ -89,13 +91,20 @@ type AntsConfig struct {
 
 var Cfg *Config
 
+//go:embed config.yml
+var configFS embed.FS
+
 // LoadConfig 加载所有配置
 func LoadConfig() *Config {
-	// 使用viper读取配置文件，进行项目初始化
-	// ./config.config.yml
-	viper.SetConfigFile("./config/config.yml")
-	if err := viper.ReadInConfig(); err != nil {
+	configBytes, err := configFS.ReadFile("config.yml")
+	if err != nil {
 		panic(fmt.Errorf("fatal error config file: %w", err))
+	}
+	// 3. 告诉 viper 配置文件的类型（因为此时是从内存读取，viper 无法通过文件名后缀推断格式）
+	viper.SetConfigType("yml") // 或者 "yaml"
+	// 4. 从字节流中读取配置
+	if err := viper.ReadConfig(bytes.NewReader(configBytes)); err != nil {
+		panic(fmt.Errorf("fatal error parsing config file: %w", err))
 	}
 	if err := viper.Unmarshal(&Cfg); err != nil {
 		panic(fmt.Errorf("unable to decode into struct: %w", err))
