@@ -8,7 +8,6 @@ pipeline {
         TARGET_PATH = "/home/muyu/deploy"
     }
 
-
     stages {
         stage('Checkout') {
             steps {
