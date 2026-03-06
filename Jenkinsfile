@@ -1,5 +1,5 @@
 pipeline {
-    agent any    // 任意节点执行
+    agent any
 
     environment {
         APP_NAME = "ginchat"
@@ -9,56 +9,57 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout') {
             steps {
-                echo "===== 拉取 ${APP_NAME} 代码 ====="
-                cleanWs() // 确保在拉取代码前，工作区是绝对干净的
+                cleanWs()       // 清空工作区
                 git(
-                    branch: 'master',
+                    branch: 'main',
                     url: 'git@github.com:muyu0211/GoChat.git',
                     credentialsId: 'server-ssh-key'
                 )
-                sh 'git log -1'
             }
         }
 
-        stage('Build in Docker') {
-            agent {
-                docker {
-                    image 'golang:1.24.5'
-                    args '-v $HOME/.cache/go-build:/root/.cache/go-build'
-                }
-            }
+        stage('Build') {
             steps {
+                script {
+                    docker.image('golang:1.24.5').inside {
+                        sh '''
+                        go mod tidy
+                        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ${APP_NAME} ./cmd
+                        '''
+                    }
+                }
+
                 sh '''
-                echo "===== 在Docker中进行构建 ====="
-                go clean -cache
-                go mod tidy
-                CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ${APP_NAME} ./cmd
-                md5sum ${APP_NAME}
+                echo "===== workspace 文件 ====="
+                ls -lh
                 '''
             }
         }
 
         stage('Deploy') {
             steps {
-                echo "===== 开始部署 ${APP_NAME} ====="
-
                 sshagent(['server-ssh-key']) {
                     sh '''
-                    ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "pkill ${APP_NAME} || true"
-                    
-                    sleep 2
+                    set -e
 
-                    # 3. 使用 scp 覆盖文件了
+                    echo "===== 本地 MD5 ====="
+                    md5sum ${APP_NAME}
+
+                    ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "
+                        pkill -f ${APP_NAME} || true
+                        sleep 2
+                        rm -f ${TARGET_PATH}/${APP_NAME}
+                        mkdir -p ${TARGET_PATH}
+                    "
+
                     scp -o StrictHostKeyChecking=no ${APP_NAME} ${TARGET_USER}@${TARGET_HOST}:${TARGET_PATH}/
 
-                     # 4. 远程执行启动命令
                     ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "
-                        chmod +x ${TARGET_PATH}/${APP_NAME}
                         cd ${TARGET_PATH}
-                        echo "===== 启动 ${APP_NAME} ====="
-                        pwd
+                        chmod +x ${APP_NAME}
                         nohup ./${APP_NAME} > server.log 2>&1 &
                     "
                     '''
