@@ -44,6 +44,7 @@ func main() {
 
 	// 初始化配置文件
 	cfg := config.LoadConfig()
+	log.Println("APP FILE DIR:", util.GetAppDir())
 
 	// 服务启动
 	logger.StartLogger(cfg)

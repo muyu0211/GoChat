@@ -48,7 +48,7 @@ pipeline {
 
                     ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "mkdir -p ${TARGET_PATH}"
 
-                    # 3. 老进程已经停止，现在可以安全地使用 scp 覆盖文件了
+                    # 3. 使用 scp 覆盖文件了
                     scp -o StrictHostKeyChecking=no ${APP_NAME} ${TARGET_USER}@${TARGET_HOST}:${TARGET_PATH}/
 
                      # 4. 远程执行启动命令
