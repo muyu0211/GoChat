@@ -2,43 +2,54 @@ pipeline {
     agent any    // 任意节点执行
 
     environment {
-        APP_NAME = 'ginchat'
-        GO_HOME = '/usr/local/go'       // go 地址
+        APP_NAME = "ginchat"
+        TARGET_HOST = "192.168.74.128"
+        TARGET_USER = "root"
+        TARGET_PATH = "/home/muyu/下载"
     }
 
+
     stages {
-        stage('Debug') {
+        stage('Checkout') {
             steps {
-                sh 'docker ps -a'
+                echo "===== 拉取 ${APP_NAME} 代码 ====="
+                git 'git@github.com:muyu0211/GoChat.git'
             }
         }
-        // stage('Checkout') {
-        //     // 1. 拉取代码
-        //     steps {
-        //         checkout scm
-        //     }
-        // }
 
-        // stage('Build in Docker') {
-        //     agent {
-        //         docker {
-        //             image 'golang:1.24.5'
-        //             args '-v $HOME/.cache/go-build:/root/.cache/go-build'
-        //         }
-        //     }
-        //     steps {
-        //         sh '''
-        //         go mod tidy
-        //         CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o gochat
-        //         '''
-        //     }
-        // }
+        stage('Build in Docker') {
+            agent {
+                docker {
+                    image 'golang:1.24.5'
+                    args '-v $HOME/.cache/go-build:/root/.cache/go-build'
+                }
+            }
+            steps {
+                echo "===== 在Docker中进行构建 ====="
 
-        // stage('Deploy') {
-        //     // 3. 将二进制文件发送到宿主机，并执行重启脚本
-        //     steps {
+                sh '''
+                go mod tidy
+                CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ${APP_NAME} ./cmd
+                '''
+            }
+        }
 
-        //     }
-        // }
+        stage('Deploy') {
+            steps {
+                echo "===== 开始部署 ${APP_NAME} ====="
+
+                sshagent(['server-ssh-key']) {
+                    sh '''
+                    scp -o StrictHostKeyChecking=no ${APP_NAME} ${TARGET_USER}@${TARGET_HOST}:${TARGET_PATH}/
+
+                    ssh -o StrictHostKeyChecking=no ${TARGET_USER}@${TARGET_HOST} "
+                        pkill ${APP_NAME} || true
+                        chmod +x ${TARGET_PATH}/${APP_NAME}
+                        nohup ${TARGET_PATH}/${APP_NAME} > ${TARGET_PATH}/server.log 2>&1 &
+                    "
+                    '''
+                }
+            }
+        }
     }
 }
