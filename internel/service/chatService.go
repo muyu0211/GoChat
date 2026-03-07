@@ -182,14 +182,23 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 				return dbErr
 			}
 
-			// 更新 conversation 表中发送方记录
-			if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
-				return dbErr
-			}
-
-			// 更新 conversation 表中接收方记录
-			if dbErr := c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
-				return dbErr
+			// 先更新ID较小的用户的会话
+			if req.SenderID < req.ReceiverID {
+				if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+					return dbErr
+				}
+				if dbErr := c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+					return dbErr
+				}
+			} else if req.SenderID > req.ReceiverID {
+				if dbErr := c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+					return dbErr
+				}
+				if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+					return dbErr
+				}
+			} else {
+				// TODO: senderID == receiverID, 自己发送给自己的消息（后续处理）
 			}
 
 			return nil
