@@ -26,6 +26,7 @@ type IConvRepo interface {
 	BulkUpdateLastAck(ctx context.Context, updates []*dto.UpdatesAck) error
 	UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, createdAt time.Time) error
 	UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, createdAt time.Time) error
+	UpdateBothConversations(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, createdAt time.Time) error
 	UpdateGroupConversations(ctx context.Context, groupKeyID string, memberIDs []uint64, newSeq uint64, senderID uint64) error
 }
 
@@ -217,6 +218,37 @@ func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, rec
 		UnreadCount:    1,
 		UpdatedAt:      updatedAt,
 	}).Error
+}
+
+// UpdateBothConversations 一次性更新发送方和接收方的会话（按固定顺序，避免死锁）
+func (r *ConvRepo) UpdateBothConversations(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
+	// 按固定顺序更新：总是先更新用户ID较小的，再更新用户ID较大的
+	smallID := senderID
+	largeID := receiverID
+	if smallID > largeID {
+		smallID, largeID = largeID, smallID
+	}
+
+	// 先更新小ID的会话
+	if smallID == senderID {
+		// 小ID是发送方，先更新发送方，再更新接收方
+		if err := r.UpdateSenderConversation(ctx, senderID, receiverID, convID, seqID, updatedAt); err != nil {
+			return err
+		}
+		if err := r.UpdateReceiverConversation(ctx, senderID, receiverID, convID, seqID, updatedAt); err != nil {
+			return err
+		}
+	} else {
+		// 小ID是接收方，先更新接收方，再更新发送方
+		if err := r.UpdateReceiverConversation(ctx, senderID, receiverID, convID, seqID, updatedAt); err != nil {
+			return err
+		}
+		if err := r.UpdateSenderConversation(ctx, senderID, receiverID, convID, seqID, updatedAt); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (r *ConvRepo) UpdateGroupConversations(ctx context.Context, groupKeyID int64, memberIDs []uint64, newSeq uint64, senderID uint64) error {

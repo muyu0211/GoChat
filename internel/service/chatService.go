@@ -168,20 +168,6 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 	// 4. 消息落库（事务操作：message表新增记录 + conversation表更新相应字段）
 	err = util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
 		exErr := c.tx.ExecTx(ctx, func(ctx context.Context) error {
-			// 创建 message 表记录
-			if dbErr := c.chatRepo.Create(ctx, &dao.MessageModel{
-				ConversationID: req.ConversationID,
-				SeqID:          seqID,
-				SenderID:       req.SenderID,
-				ReceiverID:     req.ReceiverID,
-				Content:        req.Content,
-				MsgType:        req.MsgType,
-				MsgStatus:      util.MsgStatusRead,
-				CreatedAt:      createdAt,
-			}); dbErr != nil {
-				return dbErr
-			}
-
 			// 先更新ID较小的用户的会话
 			if req.SenderID < req.ReceiverID {
 				if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
@@ -199,6 +185,20 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 				}
 			} else {
 				// TODO: senderID == receiverID, 自己发送给自己的消息（后续处理）
+			}
+
+			// 再创建 message 表记录：防止message插入时发送临键锁等待，造成表之间的死锁
+			if dbErr := c.chatRepo.Create(ctx, &dao.MessageModel{
+				ConversationID: req.ConversationID,
+				SeqID:          seqID,
+				SenderID:       req.SenderID,
+				ReceiverID:     req.ReceiverID,
+				Content:        req.Content,
+				MsgType:        req.MsgType,
+				MsgStatus:      util.MsgStatusRead,
+				CreatedAt:      createdAt,
+			}); dbErr != nil {
+				return dbErr
 			}
 
 			return nil

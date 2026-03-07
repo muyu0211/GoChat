@@ -53,3 +53,4 @@ tmp/
 .gitattributes
 .gitignore.local  # 本地个性化忽略文件（不提交到仓库）
 ginchat
+ginchat.exe
