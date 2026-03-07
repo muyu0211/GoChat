@@ -176,11 +176,11 @@ func (r *ConvRepo) BulkUpdateLastAck(ctx context.Context, updates []*dto.Updates
 	return nil
 }
 
-// UpdateSenderConversation 更新发送者会话 (采用 Insert-Catch-Update 避免 Gap Lock 死锁)
+// UpdateSenderConversation 更新发送者会话 (终极防死锁版)
 func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
 	db := r.getTx(ctx)
 
-	// 1. 先尝试直接 Insert
+	// 1. 尝试直接 Insert
 	err := db.WithContext(ctx).Create(&dao.ConversationModel{
 		OwnerID:        senderID,
 		ConversationID: convID,
@@ -191,30 +191,39 @@ func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, recei
 		UpdatedAt:      updatedAt,
 	}).Error
 
-	// 2. 如果插入成功，直接返回 (没有任何并发冲突)
 	if err == nil {
-		return nil
+		return nil // 插入成功，无并发冲突
 	}
 
-	// 3. 检查是否是唯一键冲突错误
+	// 2. 检查是否是唯一键冲突 (Error 1062)
 	if isDuplicateKeyError(err) {
-		// 4. 发生冲突说明记录已存在，执行普通的 Update 操作
-		// 注意：普通的 Update 只会加行级的排他锁 (X Lock)，不会加广泛的间隙锁
-		return db.Model(&dao.ConversationModel{}).WithContext(ctx).
+		var id uint64
+		selectErr := db.Model(&dao.ConversationModel{}).WithContext(ctx).
+			Select("id").
 			Where("owner_id = ? AND conversation_id = ?", senderID, convID).
-			Updates(map[string]interface{}{
-				"updated_at":   updatedAt,
-				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
-				"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
-				"unread_count": 0,
-			}).Error
+			Scan(&id).Error
+
+		if selectErr != nil {
+			return selectErr
+		}
+
+		if id > 0 {
+			// 核心破局点：通过主键 ID 精确 Update
+			return db.Model(&dao.ConversationModel{}).WithContext(ctx).
+				Where("id = ?", id).
+				Updates(map[string]interface{}{
+					"updated_at":   updatedAt,
+					"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
+					"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
+					"unread_count": 0,
+				}).Error
+		}
 	}
 
-	// 如果是其他数据库错误，则直接向上层返回
 	return err
 }
 
-// UpdateReceiverConversation 更新接收者会话 (采用 Insert-Catch-Update 避免 Gap Lock 死锁)
+// UpdateReceiverConversation 更新接收者会话
 func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
 	db := r.getTx(ctx)
 
@@ -229,21 +238,32 @@ func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, rec
 		UpdatedAt:      updatedAt,
 	}).Error
 
-	// 2. 如果插入成功，直接返回
 	if err == nil {
 		return nil
 	}
 
-	// 3. 检查是否是唯一键冲突错误
+	// 2. 检查是否是唯一键冲突
 	if isDuplicateKeyError(err) {
-		// 4. 发生冲突说明记录已存在，执行普通的 Update 操作
-		return db.Model(&dao.ConversationModel{}).WithContext(ctx).
+		// 无锁快照读获取主键 ID
+		var id uint64
+		selectErr := db.Model(&dao.ConversationModel{}).WithContext(ctx).
+			Select("id").
 			Where("owner_id = ? AND conversation_id = ?", receiverID, convID).
-			Updates(map[string]interface{}{
-				"updated_at":   updatedAt,
-				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
-				"unread_count": gorm.Expr("unread_count + ?", 1),
-			}).Error
+			Scan(&id).Error
+
+		if selectErr != nil {
+			return selectErr
+		}
+
+		if id > 0 {
+			return db.Model(&dao.ConversationModel{}).WithContext(ctx).
+				Where("id = ?", id).
+				Updates(map[string]interface{}{
+					"updated_at":   updatedAt,
+					"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
+					"unread_count": gorm.Expr("unread_count + ?", 1),
+				}).Error
+		}
 	}
 
 	return err
