@@ -169,7 +169,7 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 	err = util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
 		exErr := c.tx.ExecTx(ctx, func(ctx context.Context) error {
 			// 创建 message 表记录
-			err = c.chatRepo.Create(ctx, &dao.MessageModel{
+			if dbErr := c.chatRepo.Create(ctx, &dao.MessageModel{
 				ConversationID: req.ConversationID,
 				SeqID:          seqID,
 				SenderID:       req.SenderID,
@@ -178,17 +178,20 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 				MsgType:        req.MsgType,
 				MsgStatus:      util.MsgStatusRead,
 				CreatedAt:      createdAt,
-			})
+			}); dbErr != nil {
+				return dbErr
+			}
 
 			// 更新 conversation 表中发送方记录
-			err = c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt)
+			if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+				return dbErr
+			}
 
 			// 更新 conversation 表中接收方记录
-			err = c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt)
-
-			if err != nil {
-				return err
+			if dbErr := c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+				return dbErr
 			}
+
 			return nil
 		})
 		return exErr

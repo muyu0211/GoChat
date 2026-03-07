@@ -183,7 +183,7 @@ func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, recei
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"updated_at":   updatedAt,
 			"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
-			"last_ack_id":  gorm.Expr("GREAEST(last_ack_id, ?)", seqID),
+			"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
 			"unread_count": 0,
 		}), // 插入冲突时则进行更新操作
 	}).Create(&dao.ConversationModel{
