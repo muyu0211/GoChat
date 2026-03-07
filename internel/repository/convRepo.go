@@ -195,29 +195,16 @@ func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, recei
 		return nil // 插入成功，无并发冲突
 	}
 
-	// 2. 检查是否是唯一键冲突 (Error 1062)
+	// 2. 检查是否是唯一键冲突
 	if isDuplicateKeyError(err) {
-		var id uint64
-		selectErr := db.Model(&dao.ConversationModel{}).WithContext(ctx).
-			Select("id").
+		return db.Model(&dao.ConversationModel{}).WithContext(ctx).
 			Where("owner_id = ? AND conversation_id = ?", senderID, convID).
-			Scan(&id).Error
-
-		if selectErr != nil {
-			return selectErr
-		}
-
-		if id > 0 {
-			// 核心破局点：通过主键 ID 精确 Update
-			return db.Model(&dao.ConversationModel{}).WithContext(ctx).
-				Where("id = ?", id).
-				Updates(map[string]interface{}{
-					"updated_at":   updatedAt,
-					"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
-					"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
-					"unread_count": 0,
-				}).Error
-		}
+			Updates(map[string]interface{}{
+				"updated_at":   updatedAt,
+				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
+				"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
+				"unread_count": 0,
+			}).Error
 	}
 
 	return err
@@ -244,74 +231,17 @@ func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, rec
 
 	// 2. 检查是否是唯一键冲突
 	if isDuplicateKeyError(err) {
-		// 无锁快照读获取主键 ID
-		var id uint64
-		selectErr := db.Model(&dao.ConversationModel{}).WithContext(ctx).
-			Select("id").
-			Where("owner_id = ? AND conversation_id = ?", receiverID, convID).
-			Scan(&id).Error
-
-		if selectErr != nil {
-			return selectErr
-		}
-
-		if id > 0 {
-			return db.Model(&dao.ConversationModel{}).WithContext(ctx).
-				Where("id = ?", id).
-				Updates(map[string]interface{}{
-					"updated_at":   updatedAt,
-					"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
-					"unread_count": gorm.Expr("unread_count + ?", 1),
-				}).Error
-		}
+		return db.Model(&dao.ConversationModel{}).WithContext(ctx).
+			Where("owner_id = ? and conversation_id = ?", receiverID, convID).
+			Updates(map[string]interface{}{
+				"updated_at":   updatedAt,
+				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
+				"unread_count": gorm.Expr("unread_count + ?", 1),
+			}).Error
 	}
 
 	return err
 }
-
-// // UpdateSenderConversation 更新发送者会话
-// func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
-// 	db := r.getTx(ctx)
-// 	return db.Model(&dao.ConversationModel{}).WithContext(ctx).Clauses(clause.OnConflict{
-// 		Columns: []clause.Column{{Name: "owner_id"}, {Name: "conversation_id"}},
-// 		DoUpdates: clause.Assignments(map[string]interface{}{
-// 			"updated_at":   updatedAt,
-// 			"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
-// 			"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
-// 			"unread_count": 0,
-// 		}), // 插入冲突时则进行更新操作
-// 	}).Create(&dao.ConversationModel{
-// 		OwnerID:        senderID,
-// 		ConversationID: convID,
-// 		OtherUserID:    receiverID,
-// 		LastSeqID:      seqID,
-// 		LastAckID:      seqID,
-// 		UnreadCount:    0,
-// 		UpdatedAt:      updatedAt,
-// 	}).Error
-// }
-
-// // UpdateReceiverConversation 更新接收者会话
-// func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
-// 	db := r.getTx(ctx)
-// 	return db.Model(&dao.ConversationModel{}).WithContext(ctx).Clauses(
-// 		clause.OnConflict{
-// 			Columns: []clause.Column{{Name: "owner_id"}, {Name: "conversation_id"}},
-// 			DoUpdates: clause.Assignments(map[string]interface{}{
-// 				"updated_at":   updatedAt,
-// 				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id , ?)", seqID),
-// 				"unread_count": gorm.Expr("unread_count + ?", 1),
-// 			}),
-// 		}).Create(&dao.ConversationModel{
-// 		OwnerID:        receiverID,
-// 		ConversationID: convID,
-// 		OtherUserID:    senderID,
-// 		LastSeqID:      seqID,
-// 		LastAckID:      0,
-// 		UnreadCount:    1,
-// 		UpdatedAt:      updatedAt,
-// 	}).Error
-// }
 
 // UpdateBothConversations 一次性更新发送方和接收方的会话（按固定顺序，避免死锁）
 func (r *ConvRepo) UpdateBothConversations(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
