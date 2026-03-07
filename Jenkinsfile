@@ -33,8 +33,7 @@ pipeline {
                 }
 
                 sh '''
-                echo "===== workspace 文件 ====="
-                ls -lh
+                md5sum ${APP_NAME}
                 '''
             }
         }
@@ -43,9 +42,6 @@ pipeline {
             steps {
                 sshagent(['server-ssh-key']) {
                     sh '''
-                    set -e
-
-                    echo "===== 本地 MD5 ====="
                     md5sum ${APP_NAME}
 
                     # 停止当前服务
