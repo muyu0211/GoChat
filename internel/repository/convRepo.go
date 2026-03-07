@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 type IConvRepo interface {
@@ -176,18 +176,12 @@ func (r *ConvRepo) BulkUpdateLastAck(ctx context.Context, updates []*dto.Updates
 	return nil
 }
 
-// UpdateSenderConversation 更新发送者会话
+// UpdateSenderConversation 更新发送者会话 (采用 Insert-Catch-Update 避免 Gap Lock 死锁)
 func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
 	db := r.getTx(ctx)
-	return db.Model(&dao.ConversationModel{}).WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "owner_id"}, {Name: "conversation_id"}},
-		DoUpdates: clause.Assignments(map[string]interface{}{
-			"updated_at":   updatedAt,
-			"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
-			"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
-			"unread_count": 0,
-		}), // 插入冲突时则进行更新操作
-	}).Create(&dao.ConversationModel{
+
+	// 1. 先尝试直接 Insert
+	err := db.WithContext(ctx).Create(&dao.ConversationModel{
 		OwnerID:        senderID,
 		ConversationID: convID,
 		OtherUserID:    receiverID,
@@ -196,20 +190,36 @@ func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, recei
 		UnreadCount:    0,
 		UpdatedAt:      updatedAt,
 	}).Error
+
+	// 2. 如果插入成功，直接返回 (没有任何并发冲突)
+	if err == nil {
+		return nil
+	}
+
+	// 3. 检查是否是唯一键冲突错误
+	if isDuplicateKeyError(err) {
+		// 4. 发生冲突说明记录已存在，执行普通的 Update 操作
+		// 注意：普通的 Update 只会加行级的排他锁 (X Lock)，不会加广泛的间隙锁
+		return db.Model(&dao.ConversationModel{}).WithContext(ctx).
+			Where("owner_id = ? AND conversation_id = ?", senderID, convID).
+			Updates(map[string]interface{}{
+				"updated_at":   updatedAt,
+				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
+				"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
+				"unread_count": 0,
+			}).Error
+	}
+
+	// 如果是其他数据库错误，则直接向上层返回
+	return err
 }
 
-// UpdateReceiverConversation 更新接收者会话
+// UpdateReceiverConversation 更新接收者会话 (采用 Insert-Catch-Update 避免 Gap Lock 死锁)
 func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
 	db := r.getTx(ctx)
-	return db.Model(&dao.ConversationModel{}).WithContext(ctx).Clauses(
-		clause.OnConflict{
-			Columns: []clause.Column{{Name: "owner_id"}, {Name: "conversation_id"}},
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"updated_at":   updatedAt,
-				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id , ?)", seqID),
-				"unread_count": gorm.Expr("unread_count + ?", 1),
-			}),
-		}).Create(&dao.ConversationModel{
+
+	// 1. 尝试直接 Insert
+	err := db.WithContext(ctx).Create(&dao.ConversationModel{
 		OwnerID:        receiverID,
 		ConversationID: convID,
 		OtherUserID:    senderID,
@@ -218,7 +228,70 @@ func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, rec
 		UnreadCount:    1,
 		UpdatedAt:      updatedAt,
 	}).Error
+
+	// 2. 如果插入成功，直接返回
+	if err == nil {
+		return nil
+	}
+
+	// 3. 检查是否是唯一键冲突错误
+	if isDuplicateKeyError(err) {
+		// 4. 发生冲突说明记录已存在，执行普通的 Update 操作
+		return db.Model(&dao.ConversationModel{}).WithContext(ctx).
+			Where("owner_id = ? AND conversation_id = ?", receiverID, convID).
+			Updates(map[string]interface{}{
+				"updated_at":   updatedAt,
+				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
+				"unread_count": gorm.Expr("unread_count + ?", 1),
+			}).Error
+	}
+
+	return err
 }
+
+// // UpdateSenderConversation 更新发送者会话
+// func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
+// 	db := r.getTx(ctx)
+// 	return db.Model(&dao.ConversationModel{}).WithContext(ctx).Clauses(clause.OnConflict{
+// 		Columns: []clause.Column{{Name: "owner_id"}, {Name: "conversation_id"}},
+// 		DoUpdates: clause.Assignments(map[string]interface{}{
+// 			"updated_at":   updatedAt,
+// 			"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
+// 			"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
+// 			"unread_count": 0,
+// 		}), // 插入冲突时则进行更新操作
+// 	}).Create(&dao.ConversationModel{
+// 		OwnerID:        senderID,
+// 		ConversationID: convID,
+// 		OtherUserID:    receiverID,
+// 		LastSeqID:      seqID,
+// 		LastAckID:      seqID,
+// 		UnreadCount:    0,
+// 		UpdatedAt:      updatedAt,
+// 	}).Error
+// }
+
+// // UpdateReceiverConversation 更新接收者会话
+// func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
+// 	db := r.getTx(ctx)
+// 	return db.Model(&dao.ConversationModel{}).WithContext(ctx).Clauses(
+// 		clause.OnConflict{
+// 			Columns: []clause.Column{{Name: "owner_id"}, {Name: "conversation_id"}},
+// 			DoUpdates: clause.Assignments(map[string]interface{}{
+// 				"updated_at":   updatedAt,
+// 				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id , ?)", seqID),
+// 				"unread_count": gorm.Expr("unread_count + ?", 1),
+// 			}),
+// 		}).Create(&dao.ConversationModel{
+// 		OwnerID:        receiverID,
+// 		ConversationID: convID,
+// 		OtherUserID:    senderID,
+// 		LastSeqID:      seqID,
+// 		LastAckID:      0,
+// 		UnreadCount:    1,
+// 		UpdatedAt:      updatedAt,
+// 	}).Error
+// }
 
 // UpdateBothConversations 一次性更新发送方和接收方的会话（按固定顺序，避免死锁）
 func (r *ConvRepo) UpdateBothConversations(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
@@ -276,4 +349,18 @@ func (r *ConvRepo) UpdateGroupConversations(ctx context.Context, groupKeyID int6
 	}
 
 	return err
+}
+
+// isDuplicateKeyError 判断是否是 MySQL 的唯一键冲突错误 (Error 1062)
+func isDuplicateKeyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var mysqlErr *mysql.MySQLError
+	// 尝试断言为 mysql 驱动错误
+	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
+		return true
+	}
+	// Fallback: 兼容错误被包装的情况
+	return strings.Contains(err.Error(), "1062") || strings.Contains(err.Error(), "Duplicate entry")
 }

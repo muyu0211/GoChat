@@ -11,7 +11,7 @@ import (
 
 const (
 	RetryMaxTimes = 2
-	RetryInterval = 100 * time.Millisecond
+	RetryInterval = 50 * time.Millisecond
 )
 
 // SafeGo 封装 goroutine 用于保证子协程的报错安全退出
@@ -51,7 +51,7 @@ func Retry(maxTimes int, interval time.Duration, fn func() error) error {
 		if err = fn(); err == nil {
 			return nil
 		}
-		time.Sleep(interval)
+		retryDelay(i, interval)
 	}
 
 	// 重试全部失败后操作
@@ -65,4 +65,13 @@ func Retry(maxTimes int, interval time.Duration, fn func() error) error {
 	}
 
 	return fmt.Errorf("方法: %s重试%d次后失败：%w", fullName, maxTimes, err)
+}
+
+func retryDelay(attempt int, interval time.Duration) {
+	b := 1
+	for range attempt {
+		b *= 2
+	}
+	delay := interval * time.Duration(b)
+	time.Sleep(delay)
 }

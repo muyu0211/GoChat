@@ -168,30 +168,7 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 	// 4. 消息落库（事务操作：message表新增记录 + conversation表更新相应字段）
 	err = util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
 		exErr := c.tx.ExecTx(ctx, func(ctx context.Context) error {
-			// // 先更新ID较小的用户的会话
-			// if req.SenderID < req.ReceiverID {
-			// 	if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
-			// 		return dbErr
-			// 	}
-			// 	if dbErr := c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
-			// 		return dbErr
-			// 	}
-			// } else if req.SenderID > req.ReceiverID {
-			// 	if dbErr := c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
-			// 		return dbErr
-			// 	}
-			// 	if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
-			// 		return dbErr
-			// 	}
-			// } else {
-			// 	// TODO: senderID == receiverID, 自己发送给自己的消息（后续处理）
-			// }
-
-			if dbErr := c.convRepo.UpdateBothConversations(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
-				return dbErr
-			}
-
-			// 再创建 message 表记录：防止message插入时发送临键锁等待，造成表之间的死锁
+			// 创建 message 表记录
 			if dbErr := c.chatRepo.Create(ctx, &dao.MessageModel{
 				ConversationID: req.ConversationID,
 				SeqID:          seqID,
@@ -203,6 +180,25 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 				CreatedAt:      createdAt,
 			}); dbErr != nil {
 				return dbErr
+			}
+
+			// 先更新ID较小的用户的会话
+			if req.SenderID < req.ReceiverID {
+				if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+					return dbErr
+				}
+				if dbErr := c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+					return dbErr
+				}
+			} else if req.SenderID > req.ReceiverID {
+				if dbErr := c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+					return dbErr
+				}
+				if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+					return dbErr
+				}
+			} else {
+				// TODO: senderID == receiverID, 自己发送给自己的消息（后续处理）
 			}
 
 			return nil
@@ -374,20 +370,6 @@ func (c *ChatService) HandleGroupChatMsg(ctx context.Context, client *ws.Client,
 			return
 		}
 	})
-
-	// // 进行落库及后续逻辑处理：先写数据库，再写缓存，流程上尽量保证一致性
-	// // 创建 message 表记录
-	// msg := &dao.GroupMessageModel{
-	// 	GroupKeyID: req.GroupKeyID,
-	// 	GroupID:    groupID,
-	// 	SeqID:      seqID,
-	// 	SenderID:   senderID,
-	// 	Content:    req.Content,
-	// }
-	// if err := c.groupChatRepo.Create(ctx, msg); err != nil {
-	// 	zap.L().Error("消息落库失败", zap.Error(err))
-	// 	return err
-	// }
 
 	return nil
 }
