@@ -24,7 +24,6 @@ import (
 
 // ConversationModel 代表用户的一个聊天会话 (例如 UserA 和 UserB 的聊天)
 type ConversationModel struct {
-	Id             uint64    `gorm:"primaryKey;autoIncrement;comment:主键"`
 	ConversationID string    `gorm:"primaryKey;index:idx_conv_id;comment:会话ID (A_B)"`
 	OwnerID        uint64    `gorm:"primaryKey;index:idx_owner_id,priority:1;comment:属于谁"`
 	OtherUserID    uint64    `gorm:"comment:对方ID"`
