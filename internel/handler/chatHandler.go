@@ -43,7 +43,7 @@ func NewChatHandler(cs service.IChatService, us service.IUserService, ss service
 
 // Connect 登录之后，客户端紧接着发送ws连接请求
 func (ch *ChatHandler) Connect(c *gin.Context) {
-	// 1. 判断用户登陆情况
+	// 0. 判断用户登陆情况
 	var userID uint64
 	var ok bool
 	v, exists := c.Get(util.CtxUserIDKey)
@@ -55,6 +55,12 @@ func (ch *ChatHandler) Connect(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, util.NewResMsg("0", "用户ID获取失败", nil))
 		return
 	}
+
+	// 1. 判断用户是否已经建立了websocket连接（同一个客户端重复登陆、不同客户端登陆）
+	// if ws.Manager.IsConnected(userID) {
+	// 	c.JSON(http.StatusForbidden, util.NewResMsg("0", "用户已连接", nil))
+	// 	return
+	// }
 
 	ctx := c.Request.Context()
 	// 2. 从c中取出Writer和Request

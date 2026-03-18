@@ -200,7 +200,6 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 			} else {
 				// TODO: senderID == receiverID, 自己发送给自己的消息（后续处理）
 			}
-
 			return nil
 		})
 		return exErr
@@ -363,6 +362,7 @@ func (c *ChatService) HandleGroupChatMsg(ctx context.Context, client *ws.Client,
 	pubCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	util.SafeGo(func() {
+		// 使用groupID作为消息的key
 		key := fmt.Sprintf("%s:%d", "group", groupID)
 		err = c.groupMsgProducer.Publish(pubCtx, []byte(key), msgBytes)
 		if err != nil {

@@ -13,6 +13,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type IConvRepo interface {
@@ -176,102 +177,148 @@ func (r *ConvRepo) BulkUpdateLastAck(ctx context.Context, updates []*dto.Updates
 	return nil
 }
 
-// UpdateSenderConversation 更新发送者会话 (终极防死锁版)
+// // UpdateSenderConversation 更新发送者会话
+// func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
+// 	db := r.getTx(ctx)
+
+// 	// 1. 尝试直接 Insert
+// 	err := db.WithContext(ctx).Create(&dao.ConversationModel{
+// 		OwnerID:        senderID,
+// 		ConversationID: convID,
+// 		OtherUserID:    receiverID,
+// 		LastSeqID:      seqID,
+// 		LastAckID:      seqID,
+// 		UnreadCount:    0,
+// 		UpdatedAt:      updatedAt,
+// 	}).Error
+
+// 	if err == nil {
+// 		return nil // 插入成功，无并发冲突
+// 	}
+
+// 	// 2. 检查是否是唯一键冲突
+// 	if isDuplicateKeyError(err) {
+// 		return db.Model(&dao.ConversationModel{}).WithContext(ctx).
+// 			Where("owner_id = ? AND conversation_id = ?", senderID, convID).
+// 			Updates(map[string]interface{}{
+// 				"updated_at":   updatedAt,
+// 				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
+// 				"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
+// 				"unread_count": 0,
+// 			}).Error
+// 	}
+
+// 	return err
+// }
+
+// // UpdateReceiverConversation 更新接收者会话
+// func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
+// 	db := r.getTx(ctx)
+
+// 	// 1. 尝试直接 Insert
+// 	err := db.WithContext(ctx).Create(&dao.ConversationModel{
+// 		OwnerID:        receiverID,
+// 		ConversationID: convID,
+// 		OtherUserID:    senderID,
+// 		LastSeqID:      seqID,
+// 		LastAckID:      0,
+// 		UnreadCount:    1,
+// 		UpdatedAt:      updatedAt,
+// 	}).Error
+
+// 	if err == nil {
+// 		return nil
+// 	}
+
+// 	// 2. 检查是否是唯一键冲突
+// 	if isDuplicateKeyError(err) {
+// 		return db.Model(&dao.ConversationModel{}).WithContext(ctx).
+// 			Where("owner_id = ? and conversation_id = ?", receiverID, convID).
+// 			Updates(map[string]interface{}{
+// 				"updated_at":   updatedAt,
+// 				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
+// 				"unread_count": gorm.Expr("unread_count + ?", 1),
+// 			}).Error
+// 	}
+
+// 	return err
+// }
+
+// UpdateSenderConversation 更新发送者会话
 func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
 	db := r.getTx(ctx)
 
-	// 1. 尝试直接 Insert
-	err := db.WithContext(ctx).Create(&dao.ConversationModel{
-		OwnerID:        senderID,
-		ConversationID: convID,
-		OtherUserID:    receiverID,
-		LastSeqID:      seqID,
-		LastAckID:      seqID,
-		UnreadCount:    0,
-		UpdatedAt:      updatedAt,
-	}).Error
+	// 1. 使用当前读进行加锁，避免并发问题
+	var cnt int64
+	err := db.WithContext(ctx).Model(dao.ConversationModel{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("owner_id = ? and conversation_id = ?", senderID, convID).
+		Count(&cnt).Error
 
-	if err == nil {
-		return nil // 插入成功，无并发冲突
+	if err != nil {
+		return err
 	}
 
-	// 2. 检查是否是唯一键冲突
-	if isDuplicateKeyError(err) {
-		return db.Model(&dao.ConversationModel{}).WithContext(ctx).
-			Where("owner_id = ? AND conversation_id = ?", senderID, convID).
-			Updates(map[string]interface{}{
-				"updated_at":   updatedAt,
-				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
-				"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
-				"unread_count": 0,
-			}).Error
+	if cnt == 0 {
+		// 2. 尝试直接 Insert
+		return db.WithContext(ctx).Create(&dao.ConversationModel{
+			OwnerID:        senderID,
+			ConversationID: convID,
+			OtherUserID:    receiverID,
+			LastSeqID:      seqID,
+			LastAckID:      seqID,
+			UnreadCount:    0,
+			UpdatedAt:      updatedAt,
+		}).Error
 	}
 
-	return err
+	// 3. 存在记录则进行更新
+	return db.Model(&dao.ConversationModel{}).WithContext(ctx).
+		Where("owner_id = ? AND conversation_id = ?", senderID, convID).
+		Updates(map[string]interface{}{
+			"updated_at":   updatedAt,
+			"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
+			"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
+			"unread_count": 0,
+		}).Error
 }
 
 // UpdateReceiverConversation 更新接收者会话
 func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
 	db := r.getTx(ctx)
 
-	// 1. 尝试直接 Insert
-	err := db.WithContext(ctx).Create(&dao.ConversationModel{
-		OwnerID:        receiverID,
-		ConversationID: convID,
-		OtherUserID:    senderID,
-		LastSeqID:      seqID,
-		LastAckID:      0,
-		UnreadCount:    1,
-		UpdatedAt:      updatedAt,
-	}).Error
+	// 1. 使用当前读进行加锁，避免并发问题
+	var cnt int64
+	err := db.WithContext(ctx).Model(&dao.ConversationModel{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("owner_id = ? and conversation_id = ?", receiverID, convID).
+		Count(&cnt).Error
 
-	if err == nil {
-		return nil
+	if err != nil {
+		return err
 	}
 
-	// 2. 检查是否是唯一键冲突
-	if isDuplicateKeyError(err) {
-		return db.Model(&dao.ConversationModel{}).WithContext(ctx).
-			Where("owner_id = ? and conversation_id = ?", receiverID, convID).
-			Updates(map[string]interface{}{
-				"updated_at":   updatedAt,
-				"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
-				"unread_count": gorm.Expr("unread_count + ?", 1),
-			}).Error
+	if cnt == 0 {
+		// 2. 尝试直接 Insert
+		return db.WithContext(ctx).Create(&dao.ConversationModel{
+			OwnerID:        receiverID,
+			ConversationID: convID,
+			OtherUserID:    senderID,
+			LastSeqID:      seqID,
+			LastAckID:      0,
+			UnreadCount:    1,
+			UpdatedAt:      updatedAt,
+		}).Error
 	}
 
-	return err
-}
-
-// UpdateBothConversations 一次性更新发送方和接收方的会话（按固定顺序，避免死锁）
-func (r *ConvRepo) UpdateBothConversations(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
-	// 按固定顺序更新：总是先更新用户ID较小的，再更新用户ID较大的
-	smallID := senderID
-	largeID := receiverID
-	if smallID > largeID {
-		smallID, largeID = largeID, smallID
-	}
-
-	// 先更新小ID的会话
-	if smallID == senderID {
-		// 小ID是发送方，先更新发送方，再更新接收方
-		if err := r.UpdateSenderConversation(ctx, senderID, receiverID, convID, seqID, updatedAt); err != nil {
-			return err
-		}
-		if err := r.UpdateReceiverConversation(ctx, senderID, receiverID, convID, seqID, updatedAt); err != nil {
-			return err
-		}
-	} else {
-		// 小ID是接收方，先更新接收方，再更新发送方
-		if err := r.UpdateReceiverConversation(ctx, senderID, receiverID, convID, seqID, updatedAt); err != nil {
-			return err
-		}
-		if err := r.UpdateSenderConversation(ctx, senderID, receiverID, convID, seqID, updatedAt); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	// 3. 存在记录则进行更新
+	return db.Model(&dao.ConversationModel{}).WithContext(ctx).
+		Where("owner_id = ? and conversation_id = ?", receiverID, convID).
+		Updates(map[string]interface{}{
+			"updated_at":   updatedAt,
+			"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
+			"unread_count": gorm.Expr("unread_count + ?", 1),
+		}).Error
 }
 
 func (r *ConvRepo) UpdateGroupConversations(ctx context.Context, groupKeyID int64, memberIDs []uint64, newSeq uint64, senderID uint64) error {
