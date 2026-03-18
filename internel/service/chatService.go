@@ -166,93 +166,43 @@ func (c *ChatService) HandleSingleChatMsg(ctx context.Context, client *ws.Client
 	}
 
 	// 4. 消息落库（事务操作：message表新增记录 + conversation表更新相应字段）
-	// err = util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
-	// 	exErr := c.tx.ExecTx(ctx, func(ctx context.Context) error {
-	// 		// 创建 message 表记录
-	// 		if dbErr := c.chatRepo.Create(ctx, &dao.MessageModel{
-	// 			ConversationID: req.ConversationID,
-	// 			SeqID:          seqID,
-	// 			SenderID:       req.SenderID,
-	// 			ReceiverID:     req.ReceiverID,
-	// 			Content:        req.Content,
-	// 			MsgType:        req.MsgType,
-	// 			MsgStatus:      util.MsgStatusRead,
-	// 			CreatedAt:      createdAt,
-	// 		}); dbErr != nil {
-	// 			return dbErr
-	// 		}
-
-	// 		// 先更新ID较小的用户的会话
-	// 		if req.SenderID < req.ReceiverID {
-	// 			if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
-	// 				return dbErr
-	// 			}
-	// 			if dbErr := c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
-	// 				return dbErr
-	// 			}
-	// 		} else if req.SenderID > req.ReceiverID {
-	// 			if dbErr := c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
-	// 				return dbErr
-	// 			}
-	// 			if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
-	// 				return dbErr
-	// 			}
-	// 		} else {
-	// 			// TODO: senderID == receiverID, 自己发送给自己的消息（后续处理）
-	// 		}
-	// 		return nil
-	// 	})
-	// 	return exErr
-	// })
-	// 4. 消息落库（事务操作）
 	err = util.Retry(util.RetryMaxTimes, util.RetryInterval, func() error {
-		return c.tx.ExecTx(ctx, func(ctx context.Context) error {
-			// 1. 创建 message 表记录
-			if err := c.chatRepo.Create(ctx, &dao.MessageModel{
+		exErr := c.tx.ExecTx(ctx, func(ctx context.Context) error {
+			// 创建 message 表记录
+			if dbErr := c.chatRepo.Create(ctx, &dao.MessageModel{
 				ConversationID: req.ConversationID,
 				SeqID:          seqID,
 				SenderID:       req.SenderID,
 				ReceiverID:     req.ReceiverID,
-				// ... 其他字段
-			}); err != nil {
-				return err
+				Content:        req.Content,
+				MsgType:        req.MsgType,
+				MsgStatus:      util.MsgStatusRead,
+				CreatedAt:      createdAt,
+			}); dbErr != nil {
+				return dbErr
 			}
 
-			// 2. 准备数据对象
-			senderConv := &dao.ConversationModel{
-				OwnerID:        req.SenderID,
-				ConversationID: req.ConversationID,
-				OtherUserID:    req.ReceiverID,
-				LastSeqID:      seqID,
-				UpdatedAt:      createdAt,
+			// 先更新ID较小的用户的会话
+			if req.SenderID < req.ReceiverID {
+				if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+					return dbErr
+				}
+				if dbErr := c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+					return dbErr
+				}
+			} else if req.SenderID > req.ReceiverID {
+				if dbErr := c.convRepo.UpdateReceiverConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+					return dbErr
+				}
+				if dbErr := c.convRepo.UpdateSenderConversation(ctx, req.SenderID, req.ReceiverID, req.ConversationID, seqID, createdAt); dbErr != nil {
+					return dbErr
+				}
+			} else {
+				// TODO: senderID == receiverID, 自己发送给自己的消息（后续处理）
 			}
-
-			receiverConv := &dao.ConversationModel{
-				OwnerID:        req.ReceiverID,
-				ConversationID: req.ConversationID,
-				OtherUserID:    req.SenderID,
-				LastSeqID:      seqID,
-				UpdatedAt:      createdAt,
-			}
-
-			// 3. 按 OwnerID 排序执行，规避行锁死锁
-			first, second := senderConv, receiverConv
-			firstIsSender, secondIsSender := true, false
-
-			if req.SenderID > req.ReceiverID {
-				first, second = receiverConv, senderConv
-				firstIsSender, secondIsSender = false, true
-			}
-
-			if err := c.convRepo.UpsertConversation(ctx, first, firstIsSender); err != nil {
-				return err
-			}
-			if err := c.convRepo.UpsertConversation(ctx, second, secondIsSender); err != nil {
-				return err
-			}
-
 			return nil
 		})
+		return exErr
 	})
 
 	if err != nil {
