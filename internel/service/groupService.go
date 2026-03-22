@@ -62,9 +62,9 @@ type GroupService struct {
 }
 
 type groupBatch struct {
-	memberIDs  []uint64
-	msgs       []ws.Msg
-	groupKeyID int64
+	memberIDs []uint64
+	msgs      []ws.Msg
+	groupID   uint64
 }
 
 func NewGroupService(rc *cache.RedisCache, cr *repository.ConvRepo, gp *repository.GroupRepo, gmr *repository.GroupMsgRepo,
@@ -257,14 +257,25 @@ func (gs *GroupService) handlerGroupMsgFromMQ(ctx context.Context, key, value []
 	}
 
 	// 2. 验证消息完整性
-	if event.GroupID == 0 || event.SenderID == 0 {
-		zap.L().Error("[Kafka] 消息不完整: groupID or senderID is 0",
+	if event.GroupID == 0 || event.SenderID == 0 || event.SeqID == 0 {
+		zap.L().Error("[Kafka] 消息不完整: groupID or senderID or seqID is 0",
 			zap.Uint64("groupID", event.GroupID),
-			zap.Uint64("senderID", event.SenderID))
+			zap.Uint64("senderID", event.SenderID),
+			zap.Uint64("seqID", event.SeqID))
 		return nil
 	}
 
-	// 3. 获取群成员列表
+	// 3. 幂等性检查：使用 Redis SetNX 判断消息是否已处理
+	dupKey := util.GetRedisKafkaGroupDupKey(event.GroupID, event.SeqID)
+	isNew, err := gs.redisCache.SetNX(ctx, dupKey, "1", util.RedisKafkaDupExpire)
+	if err != nil {
+		zap.L().Warn("[Kafka] 幂等性检查失败，继续处理", zap.Error(err), zap.String("key", dupKey))
+	} else if !isNew {
+		zap.L().Info("[Kafka] 消息已处理，跳过", zap.Uint64("groupID", event.GroupID), zap.Uint64("seqID", event.SeqID))
+		return nil
+	}
+
+	// 4. 获取群成员列表
 	memberIDs := event.MemberIDs
 	if len(memberIDs) == 0 {
 		// 从Redis获取最新成员列表
@@ -273,30 +284,30 @@ func (gs *GroupService) handlerGroupMsgFromMQ(ctx context.Context, key, value []
 		}
 	}
 
-	// 4. 放入缓冲区用于聚合（需要加锁）
+	// 5. 放入缓冲区用于聚合（需要加锁）
 	gs.bufferLock.Lock()
 	defer gs.bufferLock.Unlock()
 
-	gID := event.GroupID
-	batchs, ok := gs.groupMsgBuffer[gID]
+	groupID := event.GroupID
+	batchs, ok := gs.groupMsgBuffer[groupID]
 	if !ok {
 		batchs = &groupBatch{
-			memberIDs:  memberIDs,
-			msgs:       make([]ws.Msg, 0, 10),
-			groupKeyID: event.GroupKeyID,
+			memberIDs: memberIDs,
+			msgs:      make([]ws.Msg, 0, 10),
+			groupID:   groupID,
 		}
-		gs.groupMsgBuffer[gID] = batchs
+		gs.groupMsgBuffer[groupID] = batchs
 	} else {
 		// 问题：上一条消息发送时群里有200人，后来一人退出，群只有199人，此时将两条消息接收者不同的消息聚合则会造成消息丢失
 		// 取并集更新群成员列表，已退出群的用户由客户端对消息进行处理
 		if len(memberIDs) > 0 {
 			batchs.memberIDs = append(batchs.memberIDs, memberIDs...)
 			batchs.memberIDs = util.Uniq(batchs.memberIDs)
-			batchs.groupKeyID = event.GroupKeyID
+			batchs.groupID = event.GroupID
 		}
 	}
 
-	// 5. 构造ReplyMsg并添加到缓冲区
+	// 6. 构造ReplyMsg并添加到缓冲区
 	batchs.msgs = append(batchs.msgs, &ws.ReplyMsg{
 		Cmd:            event.Cmd,
 		ConversationID: strconv.FormatUint(event.GroupID, 10),
@@ -410,13 +421,12 @@ func (gs *GroupService) flushToDB(groupID uint64, batch *groupBatch) {
 				}
 
 				groupMessages = append(groupMessages, dao.GroupMessageModel{
-					GroupKeyID: batch.groupKeyID,
-					GroupID:    groupID,
-					SeqID:      m.SeqID,
-					SenderID:   m.SenderID,
-					Content:    m.Content,
-					Type:       m.MsgType, // 默认为文本消息
-					CreatedAt:  time.UnixMilli(m.TimeStamp),
+					GroupID:   groupID,
+					SeqID:     m.SeqID,
+					SenderID:  m.SenderID,
+					Content:   m.Content,
+					Type:      m.MsgType, // 默认为文本消息
+					CreatedAt: time.UnixMilli(m.TimeStamp),
 				})
 
 				// 记录最后一条消息的信息，用于更新conversation表
@@ -432,7 +442,7 @@ func (gs *GroupService) flushToDB(groupID uint64, batch *groupBatch) {
 
 			// 2. 批量更新群成员的 conversation 表
 			if len(batch.memberIDs) > 0 && lastSeqID > 0 {
-				if err := gs.convRepo.UpdateGroupConversations(txCtx, batch.groupKeyID, batch.memberIDs, lastSeqID, lastSenderID); err != nil {
+				if err := gs.convRepo.UpdateGroupConversations(txCtx, batch.groupID, batch.memberIDs, lastSeqID, lastSenderID); err != nil {
 					zap.L().Error("批量更新群成员会话表失败", zap.Error(err))
 					return err
 				}

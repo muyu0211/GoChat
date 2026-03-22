@@ -15,8 +15,10 @@ const (
 	RedisSeqLockKey       = "im:seq:lock" // 初始化会话 SeqID 的分布式锁
 	RedisGroupIDKey       = "im:group:id"
 	RedisGroupIDOffsetKey = "im:group:id:offset"
+	RedisKafkaGroupDupKey = "im:kafka:group:dup" // Kafka 群消息去重
 
 	RedisDupExpire            = 1 * time.Second
+	RedisKafkaDupExpire       = 24 * time.Hour // Kafka 消息去重过期时间
 	RedisSeqExpire            = 90 * 24 * time.Hour
 	RedisOfflineExpire        = 7 * 24 * time.Hour
 	RedisGroupIDExpire        = 30 * 24 * time.Hour
@@ -65,4 +67,8 @@ func GetRedisGroupIDKey[T string | uint64](groupID T) string {
 
 func GetRedisGroupIDOffsetKey() string {
 	return RedisGroupIDOffsetKey
+}
+
+func GetRedisKafkaGroupDupKey(groupID uint64, seqID uint64) string {
+	return fmt.Sprintf("%s:%d:%d", RedisKafkaGroupDupKey, groupID, seqID)
 }

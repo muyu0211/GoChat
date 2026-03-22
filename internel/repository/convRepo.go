@@ -243,97 +243,22 @@ func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, rec
 	return err
 }
 
-// // UpdateSenderConversation 更新发送者会话
-// func (r *ConvRepo) UpdateSenderConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
-// 	db := r.getTx(ctx)
-
-// 	// 1. 使用当前读进行加锁，避免并发问题
-// 	var cnt int64
-// 	err := db.WithContext(ctx).Model(dao.ConversationModel{}).
-// 		Clauses(clause.Locking{Strength: "UPDATE"}).
-// 		Where("owner_id = ? and conversation_id = ?", senderID, convID).
-// 		Count(&cnt).Error
-
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	if cnt == 0 {
-// 		// 2. 尝试直接 Insert
-// 		return db.WithContext(ctx).Create(&dao.ConversationModel{
-// 			OwnerID:        senderID,
-// 			ConversationID: convID,
-// 			OtherUserID:    receiverID,
-// 			LastSeqID:      seqID,
-// 			LastAckID:      seqID,
-// 			UnreadCount:    0,
-// 			UpdatedAt:      updatedAt,
-// 		}).Error
-// 	}
-
-// 	// 3. 存在记录则进行更新
-// 	return db.Model(&dao.ConversationModel{}).WithContext(ctx).
-// 		Where("owner_id = ? AND conversation_id = ?", senderID, convID).
-// 		Updates(map[string]interface{}{
-// 			"updated_at":   updatedAt,
-// 			"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
-// 			"last_ack_id":  gorm.Expr("GREATEST(last_ack_id, ?)", seqID),
-// 			"unread_count": 0,
-// 		}).Error
-// }
-
-// // UpdateReceiverConversation 更新接收者会话
-// func (r *ConvRepo) UpdateReceiverConversation(ctx context.Context, senderID, receiverID uint64, convID string, seqID uint64, updatedAt time.Time) error {
-// 	db := r.getTx(ctx)
-
-// 	// 1. 使用当前读进行加锁，避免并发问题
-// 	var cnt int64
-// 	err := db.WithContext(ctx).Model(&dao.ConversationModel{}).
-// 		Clauses(clause.Locking{Strength: "UPDATE"}).
-// 		Where("owner_id = ? and conversation_id = ?", receiverID, convID).
-// 		Count(&cnt).Error
-
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	if cnt == 0 {
-// 		// 2. 尝试直接 Insert
-// 		return db.WithContext(ctx).Create(&dao.ConversationModel{
-// 			OwnerID:        receiverID,
-// 			ConversationID: convID,
-// 			OtherUserID:    senderID,
-// 			LastSeqID:      seqID,
-// 			LastAckID:      0,
-// 			UnreadCount:    1,
-// 			UpdatedAt:      updatedAt,
-// 		}).Error
-// 	}
-
-// 	// 3. 存在记录则进行更新
-// 	return db.Model(&dao.ConversationModel{}).WithContext(ctx).
-// 		Where("owner_id = ? and conversation_id = ?", receiverID, convID).
-// 		Updates(map[string]interface{}{
-// 			"updated_at":   updatedAt,
-// 			"last_seq_id":  gorm.Expr("GREATEST(last_seq_id, ?)", seqID),
-// 			"unread_count": gorm.Expr("unread_count + ?", 1),
-// 		}).Error
-// }
-
-func (r *ConvRepo) UpdateGroupConversations(ctx context.Context, groupKeyID int64, memberIDs []uint64, newSeq uint64, senderID uint64) error {
-	// 1. 更新所有接收者 (Unread + 1)
+func (r *ConvRepo) UpdateGroupConversations(ctx context.Context, groupID uint64, memberIDs []uint64, newSeq uint64, senderID uint64) error {
+	// 1. 更新所有接收者 (使用 GREATEST 保证幂等性，避免重复消费导致未读数错误增加)
 	db := r.getTx(ctx).WithContext(ctx)
 	err := db.Model(&dao.ConversationModel{}).
-		Where("conversation_id = ? AND owner_id IN (?) AND owner_id != ?", strconv.FormatInt(groupKeyID, 10), memberIDs, senderID).
+		Where("conversation_id = ? AND owner_id IN (?) AND owner_id != ? AND last_seq_id < ?",
+			strconv.FormatUint(groupID, 10), memberIDs, senderID, newSeq).
 		Updates(map[string]interface{}{
 			"last_seq_id":  newSeq,
 			"updated_at":   time.Now(),
 			"unread_count": gorm.Expr("unread_count + 1"),
 		}).Error
 
-	// 2. 更新发送者 (Unread 不变, LastAck 追平)
+	// 2. 更新发送者 (同样使用 GREATEST 保证幂等性)
 	db.Model(&dao.ConversationModel{}).
-		Where("conversation_id = ? AND owner_id = ?", strconv.FormatInt(groupKeyID, 10), senderID).
+		Where("conversation_id = ? AND owner_id = ? AND last_seq_id < ?",
+			strconv.FormatUint(groupID, 10), senderID, newSeq).
 		Updates(map[string]interface{}{
 			"last_seq_id": newSeq,
 			"last_ack_id": newSeq,
@@ -341,7 +266,7 @@ func (r *ConvRepo) UpdateGroupConversations(ctx context.Context, groupKeyID int6
 		})
 
 	if err != nil {
-		zap.L().Error("更新 conversation 信息失败", zap.Error(err), zap.Int64("groupKeyID", groupKeyID))
+		zap.L().Error("更新 conversation 信息失败", zap.Error(err), zap.Uint64("groupID", groupID))
 	}
 
 	return err

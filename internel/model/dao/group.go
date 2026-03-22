@@ -41,14 +41,12 @@ type GroupMemberModel struct {
 }
 
 type GroupMessageModel struct {
-	ID         uint64 `gorm:"primaryKey"` // 全局唯一消息ID
-	GroupKeyID int64
-	GroupID    uint64 `gorm:"index:idx_group_seq"` // 群ID
-	SeqID      uint64 `gorm:"index:idx_group_seq"` // 群内单调递增序列号 (核心)
-	SenderID   uint64 `gorm:"index"`               // 发送者
-	Content    string `gorm:"type:text"`           // 消息内容
-	Type       byte   `gorm:"default:1"`           // 消息类型
-	AtUserList string `gorm:"type:varchar(1024)"`  // JSON: [1001, 1002] 或 "all"
+	GroupID    uint64 `gorm:"primaryKey;index"` // 群ID (唯一索引，保证幂等)
+	SeqID      uint64 `gorm:"primaryKey;index"` // 群内单调递增序列号 (核心，唯一索引)
+	SenderID   uint64 `gorm:"index"`                               // 发送者
+	Content    string `gorm:"type:text"`                           // 消息内容
+	Type       byte   `gorm:"default:1"`                           // 消息类型
+	AtUserList string `gorm:"type:varchar(1024)"`                  // JSON: [1001, 1002] 或 "all"
 	CreatedAt  time.Time
 	DeletedAt  gorm.DeletedAt `gorm:"index"`
 }

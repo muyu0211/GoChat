@@ -419,6 +419,15 @@ func (c *ChatService) handlerAckFromMq(ctx context.Context, key, value []byte) e
 		return nil // 返回 nil 跳过坏消息，不要卡死消费者
 	}
 
+	// 2. 验证消息完整性
+	if event.SenderID == 0 || event.ConversationID == "" || event.AckID == 0 {
+		zap.L().Error("[Kafka] ACK 消息不完整",
+			zap.Uint64("senderID", event.SenderID),
+			zap.String("conversationID", event.ConversationID),
+			zap.Uint64("ackID", event.AckID))
+		return nil
+	}
+
 	c.bufferLock.Lock()
 	defer c.bufferLock.Unlock()
 
