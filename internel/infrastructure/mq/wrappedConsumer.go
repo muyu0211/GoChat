@@ -61,3 +61,5 @@ func NewGroupMsgProducer(brokers []string, cfg *config.BusinessConfig) (*GroupMs
 	}
 	return &GroupMsgProducer{Producer: producer}, nil
 }
+
+// 增加新的生产者/消费者

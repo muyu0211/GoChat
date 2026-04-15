@@ -39,7 +39,7 @@ type App struct {
 func main() {
 	//启动一个独立的 goroutine 监听 pprof 端口
 	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
+		log.Println(http.ListenAndServe("0.0.0.0:6060", nil))
 	}()
 
 	// 初始化配置文件
